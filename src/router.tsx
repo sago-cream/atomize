@@ -44,6 +44,18 @@ const SoloPregameScreen = lazy(async () => {
     const module = await import('./components/menu/SoloPregameScreen');
     return { default: module.SoloPregameScreen };
 });
+const LandingPage = lazy(async () => {
+    const module = await import('./components/website/LandingPage');
+    return { default: module.LandingPage };
+});
+const PrivacyPage = lazy(async () => {
+    const module = await import('./components/website/PrivacyPage');
+    return { default: module.PrivacyPage };
+});
+const SupportPage = lazy(async () => {
+    const module = await import('./components/website/SupportPage');
+    return { default: module.SupportPage };
+});
 
 function MenuPage(): JSX.Element {
     const {
@@ -66,25 +78,25 @@ function MenuPage(): JSX.Element {
             isGuest={isGuest || !session}
             needsTutorial={needsTutorial}
             onOpenAccount={() => {
-                navigateTo('/account');
+                navigateTo('/app/account');
             }}
             onOpenAuth={() => {
-                navigateTo('/login');
+                navigateTo('/app/login');
             }}
             onOpenBattle={() => {
-                navigateTo('/battle');
+                navigateTo('/app/battle');
             }}
             onOpenFriends={() => {
-                navigateTo('/friends');
+                navigateTo('/app/friends');
             }}
             onOpenLeaderboard={() => {
-                navigateTo('/leaderboard');
+                navigateTo('/app/leaderboard');
             }}
             onOpenSolo={() => {
-                navigateTo('/solo');
+                navigateTo('/app/solo');
             }}
             onOpenTutorial={() => {
-                navigateTo('/tutorial');
+                navigateTo('/app/tutorial');
             }}
             playerLevel={playerLevel}
             toastId={toastId}
@@ -121,7 +133,7 @@ function SoloPregamePage(): JSX.Element {
         <SoloPregameScreen
             bestScore={soloGame.bestScore}
             onBack={() => {
-                navigateTo('/');
+                navigateTo('/app');
             }}
             onStart={() => {
                 soloGame.startSingleGame();
@@ -188,7 +200,7 @@ function BattlePickerPage(): JSX.Element {
             isInRoom={activeMenuGame.isInRoom}
             isOpponentReady={activeMenuGame.isOpponentReady}
             onBack={() => {
-                navigateTo('/');
+                navigateTo('/app');
             }}
             onInvitePlayer={(targetPlayerId) => {
                 detachPromise(
@@ -270,7 +282,7 @@ function LoginPage(): JSX.Element | undefined {
 
     useEffect(() => {
         if (session) {
-            navigateTo('/');
+            navigateTo('/app');
         }
     }, [session, navigateTo]);
 
@@ -282,10 +294,10 @@ function LoginPage(): JSX.Element | undefined {
         <AuthScreen
             initialMode='login'
             onAuthSuccess={() => {
-                navigateTo('/');
+                navigateTo('/app');
             }}
             onBack={() => {
-                navigateTo('/');
+                navigateTo('/app');
             }}
         />
     );
@@ -296,7 +308,7 @@ function SignupPage(): JSX.Element | undefined {
 
     useEffect(() => {
         if (session) {
-            navigateTo('/');
+            navigateTo('/app');
         }
     }, [session, navigateTo]);
 
@@ -308,10 +320,10 @@ function SignupPage(): JSX.Element | undefined {
         <AuthScreen
             initialMode='signup'
             onAuthSuccess={() => {
-                navigateTo('/');
+                navigateTo('/app');
             }}
             onBack={() => {
-                navigateTo('/');
+                navigateTo('/app');
             }}
         />
     );
@@ -323,7 +335,7 @@ function AccountPage(): JSX.Element | undefined {
 
     useEffect(() => {
         if (!session) {
-            navigateTo('/');
+            navigateTo('/app');
         }
     }, [session, navigateTo]);
 
@@ -334,12 +346,12 @@ function AccountPage(): JSX.Element | undefined {
     return (
         <AccountScreen
             onBack={() => {
-                navigateTo('/');
+                navigateTo('/app');
             }}
             onEditName={handleEditName}
             onLogout={() => {
                 handleLogout();
-                navigateTo('/');
+                navigateTo('/app');
             }}
             playerName={playerName}
             userId={session.user.id}
@@ -352,7 +364,7 @@ function FriendsPage(): JSX.Element | undefined {
 
     useEffect(() => {
         if (!session) {
-            navigateTo('/');
+            navigateTo('/app');
         }
     }, [session, navigateTo]);
 
@@ -363,7 +375,7 @@ function FriendsPage(): JSX.Element | undefined {
     return (
         <FriendsScreen
             onBack={() => {
-                navigateTo('/');
+                navigateTo('/app');
             }}
             playerName={playerName}
             userId={session.user.id}
@@ -377,7 +389,7 @@ function LeaderboardPage(): JSX.Element {
     return (
         <LeaderboardScreen
             onBack={() => {
-                navigateTo('/');
+                navigateTo('/app');
             }}
             playerName={playerName}
             prefetchedData={leaderboardData}
@@ -389,43 +401,55 @@ function ResolvedRoute(): JSX.Element {
     const { pathname } = useAppContext();
 
     switch (pathname) {
-        case '/tutorial': {
+        case '/': {
+            return <LandingPage />;
+        }
+
+        case '/privacy': {
+            return <PrivacyPage />;
+        }
+
+        case '/support': {
+            return <SupportPage />;
+        }
+
+        case '/app/tutorial': {
             return <TutorialPage />;
         }
 
-        case '/solo': {
+        case '/app/solo': {
             return <SoloPregamePage />;
         }
 
-        case '/solo/play': {
+        case '/app/solo/play': {
             return <SoloPlayPage />;
         }
 
-        case '/battle': {
+        case '/app/battle': {
             return <BattlePickerPage />;
         }
 
-        case '/battle/play': {
+        case '/app/battle/play': {
             return <BattlePlayPage />;
         }
 
-        case '/login': {
+        case '/app/login': {
             return <LoginPage />;
         }
 
-        case '/signup': {
+        case '/app/signup': {
             return <SignupPage />;
         }
 
-        case '/account': {
+        case '/app/account': {
             return <AccountPage />;
         }
 
-        case '/friends': {
+        case '/app/friends': {
             return <FriendsPage />;
         }
 
-        case '/leaderboard': {
+        case '/app/leaderboard': {
             return <LeaderboardPage />;
         }
 

@@ -6,6 +6,7 @@ import App from './App';
 
 import './base.css';
 import './theme.css';
+import './website.css';
 
 registerSW({ immediate: true });
 

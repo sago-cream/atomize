@@ -22,7 +22,7 @@ export default defineConfig({
                 background_color: '#f4efe2',
                 display: 'standalone',
                 display_override: ['standalone', 'minimal-ui'],
-                start_url: '/',
+                start_url: '/app',
                 orientation: 'portrait',
                 icons: [
                     {
