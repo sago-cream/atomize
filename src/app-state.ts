@@ -159,6 +159,12 @@ export const seoText = {
     defaultDescription:
         'Atomize is a fast prime factorization battle game for the browser. Train in solo mode, learn with the tutorial, or duel opponents in real time.',
     defaultTitle: 'Atomize | Prime Factorization Battle Game',
+    privacyDescription:
+        'Learn what information Atomize uses for accounts, multiplayer matches, leaderboards, and product analytics.',
+    privacyTitle: 'Privacy | Atomize',
+    supportDescription:
+        'Get help with Atomize accounts, gameplay, multiplayer matches, and technical issues.',
+    supportTitle: 'Support | Atomize',
     leaderboardDescription:
         'Check the latest Atomize high scores and see who leads the prime factorization leaderboard.',
     leaderboardTitle: 'Leaderboard | Atomize',
@@ -186,6 +192,134 @@ export const seoText = {
     tutorialDescription:
         'Learn how Atomize works with a guided tutorial covering factors, combos, damage, and battle flow.',
     tutorialTitle: 'Tutorial | Atomize',
+} as const;
+
+export const websiteText = {
+    brand: 'Atomize',
+    navigation: {
+        label: 'Atomize navigation',
+        play: 'Play',
+        privacy: 'Privacy',
+        support: 'Support',
+    },
+    landing: {
+        eyebrow: 'Prime factorization, under pressure',
+        title: 'Break numbers. Build combos.',
+        description:
+            'Atomize turns prime factorization into a fast puzzle battle. Learn the rules, chase a solo high score, or out-factor an opponent in real time.',
+        primaryAction: 'Play Atomize',
+        secondaryAction: 'Learn the moves',
+        demoLabel: 'A sample Atomize factorization',
+        demoTarget: '84',
+        demoFactors: ['2', '2', '3', '7'],
+        demoEquation: '84 = 2 \u00D7 2 \u00D7 3 \u00D7 7',
+        featuresTitle: 'Math that moves at game speed.',
+        features: [
+            {
+                title: 'Start in seconds',
+                body: 'The guided tutorial teaches factors, combos, and battle flow while you play.',
+            },
+            {
+                title: 'Train your instincts',
+                body: 'Solo mode rewards quick recognition, clean factor chains, and longer combos.',
+            },
+            {
+                title: 'Challenge a rival',
+                body: 'Face AtomBot instantly or sign in for live matches, friends, and leaderboards.',
+            },
+        ],
+        finalTitle: 'Ready to atomize?',
+        finalBody:
+            'Play free in your browser. No download is required, and guest mode gets you straight into the game.',
+        finalAction: 'Enter the arena',
+    },
+    privacy: {
+        eyebrow: 'Your data, clearly explained',
+        title: 'Privacy',
+        updated: 'Last updated July 27, 2026',
+        intro: 'Atomize uses only the information needed to run accounts, multiplayer games, leaderboards, and basic product analytics.',
+        sections: [
+            {
+                title: 'Information you provide',
+                body: [
+                    'If you create an account, Atomize receives your email address, chosen player name, and sign-in provider details. Google sign-in is handled by Google and Supabase; Atomize does not receive your Google password.',
+                    'When you add friends or send match invitations, Atomize stores the relationships and requests needed to provide those features.',
+                ],
+            },
+            {
+                title: 'Gameplay and device information',
+                body: [
+                    'Atomize stores gameplay information such as high scores, experience, multiplayer results, and combo statistics. Guest progress and preferences may be kept in your browser.',
+                    'The website uses Vercel Analytics to understand aggregate traffic and performance. This may include general device, browser, and page-view information.',
+                ],
+            },
+            {
+                title: 'How information is used',
+                items: [
+                    'Operate authentication, profiles, friends, live matches, and leaderboards.',
+                    'Save progress and show account statistics.',
+                    'Maintain security, prevent abuse, and troubleshoot problems.',
+                    'Improve reliability and understand how the product is used.',
+                ],
+            },
+            {
+                title: 'Service providers',
+                body: [
+                    'Atomize relies on Supabase for authentication, database, and real-time features, and Vercel for website hosting and analytics. Those providers process information under their own privacy terms.',
+                ],
+            },
+            {
+                title: 'Sharing and retention',
+                body: [
+                    'Atomize does not sell personal information. Player names and scores may be visible to other players through multiplayer features and public leaderboards.',
+                    'Account information is retained while your account is active and as reasonably needed for security, legal, and operational purposes. Browser-stored guest data can be removed by clearing site data.',
+                ],
+            },
+            {
+                title: 'Your choices',
+                body: [
+                    'You can use guest mode without creating an account, clear local browser data, or contact support to request help with account information or deletion.',
+                ],
+            },
+        ],
+        contactTitle: 'Privacy questions',
+        contactBody:
+            'Questions or account data requests can be sent to the Atomize support address.',
+    },
+    support: {
+        eyebrow: 'We can help',
+        title: 'Support',
+        intro: 'Having trouble with a factor, your account, or a live match? Start with the quick fixes below or send a support email.',
+        contactTitle: 'Contact support',
+        contactBody:
+            'Include your device, browser or app version, player name, and the steps that caused the problem. Screenshots are helpful too.',
+        contactAction: 'Email support',
+        responseTime: 'Most messages receive a reply within two business days.',
+        commonTitle: 'Quick fixes',
+        issues: [
+            {
+                title: 'The game will not load',
+                body: 'Check your connection, refresh the page, and update your browser. If the problem continues, clear Atomize site data and try again.',
+            },
+            {
+                title: 'Sign-in does not finish',
+                body: 'Allow pop-ups for Atomize, confirm that you are using the same browser window, then retry Google or email sign-in.',
+            },
+            {
+                title: 'A multiplayer match is out of sync',
+                body: 'Return to the menu and start a fresh match. A stable connection is required for real-time play.',
+            },
+            {
+                title: 'Guest progress is missing',
+                body: 'Guest progress is stored in the browser and can be removed by private browsing, clearing site data, or switching devices. Sign in to keep a persistent player identity.',
+            },
+        ],
+    },
+    footer: {
+        copyright: '\u00A9 2026 Atomize',
+        label: 'Atomize information',
+    },
+    supportEmail: 'its.hsichen@gmail.com',
 } as const;
 
 type TutorialLessonTextEntry = {

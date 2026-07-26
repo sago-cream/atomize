@@ -84,6 +84,23 @@ function applySeoContent({ description, title }: SeoContent) {
     upsertMetaTag({ property: 'og:description', content: description });
     upsertMetaTag({ name: 'twitter:title', content: title });
     upsertMetaTag({ name: 'twitter:description', content: description });
+
+    const canonicalUrl = new URL(
+        globalThis.location.pathname,
+        globalThis.location.origin
+    );
+    let canonicalLink = document.head.querySelector<HTMLLinkElement>(
+        'link[rel="canonical"]'
+    );
+
+    if (!canonicalLink) {
+        canonicalLink = document.createElement('link');
+        canonicalLink.rel = 'canonical';
+        document.head.append(canonicalLink);
+    }
+
+    canonicalLink.href = canonicalUrl.href;
+    upsertMetaTag({ property: 'og:url', content: canonicalUrl.href });
 }
 
 function isGoogleAuthPopupWindow(): boolean {
@@ -298,22 +315,22 @@ async function syncAuthenticatedLeaderboardProfile({
 }
 
 const SCREEN_TO_PATH = {
-    'tutorial': '/tutorial',
-    'single': '/solo/play',
-    'multi-game': '/battle/play',
-    'menu': '/',
+    'tutorial': '/app/tutorial',
+    'single': '/app/solo/play',
+    'multi-game': '/app/battle/play',
+    'menu': '/app',
 } as const;
 
 function deriveScreen(pathname: string): Screen {
-    if (pathname === '/tutorial') {
+    if (pathname === '/app/tutorial') {
         return 'tutorial';
     }
 
-    if (pathname === '/solo/play') {
+    if (pathname === '/app/solo/play') {
         return 'single';
     }
 
-    if (pathname === '/battle/play') {
+    if (pathname === '/app/battle/play') {
         return 'multi-game';
     }
 
@@ -553,14 +570,19 @@ export default function App(): JSX.Element {
     }, [playerName]);
 
     useEffect(() => {
-        if (screen !== 'menu' || sessionLoading || leaderboardData) {
+        if (
+            pathname !== '/app' ||
+            screen !== 'menu' ||
+            sessionLoading ||
+            leaderboardData
+        ) {
             return;
         }
 
         detachPromise(
             fetchLeaderboardData(playerName).then(setLeaderboardData)
         );
-    }, [screen, sessionLoading, leaderboardData, playerName]);
+    }, [pathname, screen, sessionLoading, leaderboardData, playerName]);
 
     useEffect(() => {
         let seoContent: SeoContent = {
@@ -571,13 +593,37 @@ export default function App(): JSX.Element {
         switch (pathname) {
             case '/': {
                 seoContent = {
+                    description: seoText.defaultDescription,
+                    title: seoText.defaultTitle,
+                };
+                break;
+            }
+
+            case '/privacy': {
+                seoContent = {
+                    description: seoText.privacyDescription,
+                    title: seoText.privacyTitle,
+                };
+                break;
+            }
+
+            case '/support': {
+                seoContent = {
+                    description: seoText.supportDescription,
+                    title: seoText.supportTitle,
+                };
+                break;
+            }
+
+            case '/app': {
+                seoContent = {
                     description: seoText.menuDescription,
                     title: seoText.menuTitle,
                 };
                 break;
             }
 
-            case '/tutorial': {
+            case '/app/tutorial': {
                 seoContent = {
                     description: seoText.tutorialDescription,
                     title: seoText.tutorialTitle,
@@ -585,8 +631,8 @@ export default function App(): JSX.Element {
                 break;
             }
 
-            case '/solo':
-            case '/solo/play': {
+            case '/app/solo':
+            case '/app/solo/play': {
                 seoContent = {
                     description: seoText.singleDescription,
                     title: seoText.singleTitle,
@@ -594,8 +640,8 @@ export default function App(): JSX.Element {
                 break;
             }
 
-            case '/battle':
-            case '/battle/play': {
+            case '/app/battle':
+            case '/app/battle/play': {
                 seoContent = {
                     description: seoText.multiplayerDescription,
                     title: seoText.multiplayerTitle,
@@ -603,7 +649,7 @@ export default function App(): JSX.Element {
                 break;
             }
 
-            case '/login': {
+            case '/app/login': {
                 seoContent = {
                     description: seoText.loginDescription,
                     title: seoText.loginTitle,
@@ -611,7 +657,7 @@ export default function App(): JSX.Element {
                 break;
             }
 
-            case '/signup': {
+            case '/app/signup': {
                 seoContent = {
                     description: seoText.signupDescription,
                     title: seoText.signupTitle,
@@ -619,7 +665,7 @@ export default function App(): JSX.Element {
                 break;
             }
 
-            case '/account': {
+            case '/app/account': {
                 seoContent = {
                     description: seoText.accountDescription,
                     title: seoText.accountTitle,
@@ -627,7 +673,7 @@ export default function App(): JSX.Element {
                 break;
             }
 
-            case '/friends': {
+            case '/app/friends': {
                 seoContent = {
                     description: seoText.friendsDescription,
                     title: seoText.friendsTitle,
@@ -635,7 +681,7 @@ export default function App(): JSX.Element {
                 break;
             }
 
-            case '/leaderboard': {
+            case '/app/leaderboard': {
                 seoContent = {
                     description: seoText.leaderboardDescription,
                     title: seoText.leaderboardTitle,
@@ -747,13 +793,13 @@ export default function App(): JSX.Element {
         soloGame.resetSoloGame();
         tutorialGame.resetTutorialGame();
         setLeaderboardData(undefined);
-        navigateTo('/');
+        navigateTo('/app');
     }
 
     function handleTutorialReturn() {
         markTutorialComplete();
         tutorialGame.resetTutorialGame();
-        navigateTo('/');
+        navigateTo('/app');
     }
 
     function handleLogout() {
@@ -801,13 +847,13 @@ export default function App(): JSX.Element {
     };
 
     const pendingInvitation =
-        screen !== 'menu' || localCpuGame.isInRoom
+        pathname !== '/app' || screen !== 'menu' || localCpuGame.isInRoom
             ? undefined
             : multiplayerGame.pendingInvitation;
 
     function handleAcceptInvitation() {
         detachPromise(multiplayerGame.handleAcceptInvitation());
-        navigateTo('/battle');
+        navigateTo('/app/battle');
     }
 
     function handleDeclineInvitation() {
