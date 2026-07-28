@@ -120,6 +120,12 @@ const SOLO_CONTROL_BOTTOM_MARGIN := 64.0
 const PAGE_HEADER_BOTTOM := 224.0
 const DIALOG_WIDTH := 304.0
 const DIALOG_BUTTON_HEIGHT := 48.0
+const BURST_ENTRY_SECONDS := 0.6
+const BURST_TITLE_DELAY_SECONDS := 0.35
+const BURST_TITLE_SECONDS := 0.3
+const BURST_NAVIGATE_DELAY_SECONDS := 0.8
+const BURST_EXIT_DELAY_SECONDS := 0.05
+const BURST_EXIT_SECONDS := 0.5
 const THEME_BUTTON_PRIMARY := "AtomButtonPrimary"
 const THEME_BUTTON_SECONDARY := "AtomButtonSecondary"
 const THEME_BUTTON_SURFACE := "AtomButtonSurface"
@@ -135,6 +141,7 @@ const THEME_BUTTON_PAGE_DANGER := "AtomButtonPageDanger"
 const THEME_BUTTON_BLOB_PRIMARY := "AtomButtonBlobPrimary"
 const THEME_BUTTON_BLOB_SECONDARY := "AtomButtonBlobSecondary"
 const THEME_PANEL_HERO_ORB := "AtomPanelHeroOrb"
+const THEME_PANEL_BURST := "AtomPanelBurst"
 const THEME_PANEL_PAGE_HEADER := "AtomPanelPageHeader"
 const THEME_PANEL_LOGO_DOT := "AtomPanelLogoDot"
 const THEME_PANEL_SURFACE := "AtomPanelSurface"
@@ -505,6 +512,7 @@ var sfx_players: Array[AudioStreamPlayer] = []
 var sfx_pool_index := 0
 var network_root: Node
 var leaderboard_request: HTTPRequest
+var burst_transition_overlay: Control
 
 var root_margin: MarginContainer
 var content: VBoxContainer
@@ -598,7 +606,7 @@ func _ready() -> void:
 			_start_battle_ready()
 		"battle-game":
 			_start_battle_ready()
-			_start_battle_game()
+			_start_battle_game(false)
 		_:
 			_start_home()
 
@@ -1358,6 +1366,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not event.is_pressed():
 		return
 
+	if is_instance_valid(burst_transition_overlay):
+		get_viewport().set_input_as_handled()
+		return
+
 	if event.is_action_pressed("ui_cancel"):
 		if _handle_back_navigation():
 			get_viewport().set_input_as_handled()
@@ -1367,6 +1379,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 func _handle_back_navigation() -> bool:
+	if is_instance_valid(burst_transition_overlay):
+		return true
+
 	if has_node("PlayerNameOverlay") or has_node("ResetBestOverlay"):
 		_start_home()
 		return true
@@ -1772,7 +1787,7 @@ func _decline_realtime_invitation() -> void:
 	realtime_pending_invitation.clear()
 	_build_battle_picker_layout()
 
-func _start_battle_game() -> void:
+func _start_battle_game(with_transition := true) -> void:
 	if _is_realtime_room_active():
 		_toggle_realtime_ready()
 		return
@@ -1781,6 +1796,13 @@ func _start_battle_game() -> void:
 		_start_battle_ready()
 		return
 
+	if with_transition and screen == Screen.BATTLE_READY:
+		_play_burst_transition(_begin_local_battle_game)
+		return
+
+	_begin_local_battle_game()
+
+func _begin_local_battle_game() -> void:
 	battle_snapshot = BattleRoom.set_player_ready(battle_snapshot, BATTLE_PLAYER_ID, true)
 	battle_snapshot = BattleRoom.begin_room_match(battle_snapshot)
 	battle_prime_queue.clear()
@@ -1793,10 +1815,17 @@ func _start_battle_game() -> void:
 	_render_battle()
 	_track_realtime_presence()
 
-func _enter_realtime_battle_game() -> void:
+func _enter_realtime_battle_game(with_transition := true) -> void:
 	if battle_snapshot.is_empty():
 		return
 
+	if with_transition and screen == Screen.BATTLE_READY:
+		_play_burst_transition(_begin_realtime_battle_game)
+		return
+
+	_begin_realtime_battle_game()
+
+func _begin_realtime_battle_game() -> void:
 	battle_prime_queue.clear()
 	_clear_battle_resolution()
 	_reset_battle_display_state()
@@ -1932,6 +1961,13 @@ func _arrays_match(left: Array, right: Array) -> bool:
 	return true
 
 func _start_solo_game() -> void:
+	if screen == Screen.SOLO_PREGAME:
+		_play_burst_transition(_begin_solo_game)
+		return
+
+	_begin_solo_game()
+
+func _begin_solo_game() -> void:
 	run_seed = "%s:%s" % [SOLO_SEED_PREFIX, Time.get_ticks_usec()]
 	solo_state = Game.create_initial_solo_state(run_seed)
 	solo_time_left = SOLO_DURATION_SECONDS
@@ -3006,7 +3042,7 @@ func _clear_screen() -> void:
 	_clear_control_tweens()
 	_clear_keyboard_prime_input(false)
 	for child in get_children():
-		if child == sfx_pool_root or child == network_root:
+		if child == sfx_pool_root or child == network_root or child == burst_transition_overlay:
 			continue
 
 		child.queue_free()
@@ -4129,6 +4165,7 @@ func _make_app_theme() -> Theme:
 	_add_button_theme(app_theme, THEME_BUTTON_BLOB_SECONDARY, COLOR_SECONDARY, COLOR_TEXT_INVERSE, 16, COLOR_SECONDARY, 16, RADIUS_PILL, COLOR_BORDER_INVERSE_SOFT)
 	_add_transparent_button_theme(app_theme)
 	_add_panel_theme(app_theme, THEME_PANEL_HERO_ORB, "Panel", _make_pixel_box_style(COLOR_PRIMARY, COLOR_OUTLINE_STRONG, PIXEL_BORDER, RADIUS_PILL, true))
+	_add_panel_theme(app_theme, THEME_PANEL_BURST, "Panel", _make_pixel_box_style(COLOR_PRIMARY, Color.TRANSPARENT, 0, RADIUS_PILL, true))
 	_add_panel_theme(app_theme, THEME_PANEL_PAGE_HEADER, "Panel", _make_capsule_style(COLOR_PRIMARY))
 	_add_panel_theme(app_theme, THEME_PANEL_LOGO_DOT, "Panel", _make_pixel_box_style(COLOR_TEXT_INVERSE, Color.TRANSPARENT, 0, RADIUS_PILL))
 	_add_panel_theme(app_theme, THEME_PANEL_SURFACE, "Panel", _make_panel_style(COLOR_SURFACE))
@@ -4538,6 +4575,98 @@ func _build_prime_keypad_controls(
 	submit_button.pressed.connect(submit_callback)
 	action_column.add_child(submit_button)
 	return controls
+
+func _play_burst_transition(navigate: Callable) -> void:
+	if is_instance_valid(burst_transition_overlay):
+		return
+
+	if _prefers_reduced_motion():
+		navigate.call()
+		return
+
+	var viewport_size := get_viewport_rect().size
+	var curve_diameter := maxf(viewport_size.x * 1.6, viewport_size.y)
+	var travel_distance := viewport_size.y + (curve_diameter / 2.0)
+
+	var overlay := Control.new()
+	overlay.name = "BurstTransition"
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.z_index = 1000
+	add_child(overlay)
+	burst_transition_overlay = overlay
+
+	var wipe_group := Control.new()
+	wipe_group.name = "BurstWipe"
+	wipe_group.position = Vector2(0.0, -travel_distance)
+	wipe_group.size = viewport_size
+	wipe_group.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.add_child(wipe_group)
+
+	var wipe_rect := ColorRect.new()
+	wipe_rect.color = COLOR_PRIMARY
+	wipe_rect.position = Vector2(0.0, -viewport_size.y)
+	wipe_rect.size = Vector2(viewport_size.x, viewport_size.y * 2.0)
+	wipe_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wipe_group.add_child(wipe_rect)
+
+	var wipe_curve := Panel.new()
+	wipe_curve.name = "BurstCurve"
+	wipe_curve.position = Vector2(
+		(viewport_size.x - curve_diameter) / 2.0,
+		viewport_size.y - (curve_diameter / 2.0)
+	)
+	wipe_curve.size = Vector2(curve_diameter, curve_diameter)
+	wipe_curve.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_apply_panel_theme(wipe_curve, THEME_PANEL_BURST)
+	wipe_group.add_child(wipe_curve)
+
+	var title := _make_home_title()
+	title.name = "BurstTitle"
+	title.position = Vector2(
+		(viewport_size.x - 320.0) / 2.0,
+		(viewport_size.y - 72.0) / 2.0 - 16.0
+	)
+	title.size = Vector2(320.0, 72.0)
+	title.modulate.a = 0.0
+	overlay.add_child(title)
+
+	var wipe_tween := wipe_group.create_tween().bind_node(wipe_group)
+	wipe_tween.set_trans(Tween.TRANS_QUINT)
+	wipe_tween.set_ease(Tween.EASE_IN_OUT)
+	wipe_tween.tween_property(wipe_group, "position:y", 0.0, BURST_ENTRY_SECONDS)
+
+	var title_tween := title.create_tween().bind_node(title).set_parallel(true)
+	title_tween.set_trans(Tween.TRANS_QUAD)
+	title_tween.set_ease(Tween.EASE_OUT)
+	title_tween.tween_property(
+		title,
+		"position:y",
+		title.position.y + 16.0,
+		BURST_TITLE_SECONDS
+	).set_delay(BURST_TITLE_DELAY_SECONDS)
+	title_tween.tween_property(
+		title,
+		"modulate:a",
+		1.0,
+		BURST_TITLE_SECONDS
+	).set_delay(BURST_TITLE_DELAY_SECONDS)
+
+	var timeline := overlay.create_tween().bind_node(overlay)
+	timeline.tween_interval(BURST_NAVIGATE_DELAY_SECONDS)
+	timeline.tween_callback(navigate)
+	timeline.tween_interval(BURST_EXIT_DELAY_SECONDS)
+	timeline.tween_property(overlay, "position:y", -travel_distance, BURST_EXIT_SECONDS) \
+		.set_trans(Tween.TRANS_QUINT) \
+		.set_ease(Tween.EASE_IN)
+	timeline.tween_callback(_finish_burst_transition.bind(overlay))
+
+func _finish_burst_transition(overlay: Control) -> void:
+	if burst_transition_overlay == overlay:
+		burst_transition_overlay = null
+
+	if is_instance_valid(overlay):
+		overlay.queue_free()
 
 func _animate_game_layout_entry(target: Control, controls: Control) -> void:
 	if _prefers_reduced_motion():

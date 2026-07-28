@@ -17,6 +17,12 @@ func _run() -> void:
 	await process_frame
 
 	var failures := _validate_screen(main_scene, screen_name)
+	match _screen_label(screen_name):
+		"solo-pregame":
+			await _validate_burst_transition(main_scene, "_start_solo_game", failures)
+		"battle-ready":
+			await _validate_burst_transition(main_scene, "_start_battle_game", failures)
+
 	if not failures.is_empty():
 		for failure in failures:
 			printerr("[Error] Godot screen smoke failed for %s: %s" % [_screen_label(screen_name), failure])
@@ -64,6 +70,43 @@ func _validate_screen(main_scene: Node, screen_name: String) -> Array[String]:
 		_validate_battle_queue_layout(main_scene, failures)
 
 	return failures
+
+func _validate_burst_transition(
+	main_scene: Node,
+	start_method: String,
+	failures: Array[String]
+) -> void:
+	if not main_scene.has_method("_play_burst_transition"):
+		failures.append("missing web-style burst transition")
+		return
+
+	main_scene.call(start_method)
+	await process_frame
+
+	var transition := main_scene.find_child("BurstTransition", true, false) as Control
+	if transition == null:
+		failures.append("%s did not start with BurstTransition" % start_method)
+		return
+
+	if transition.mouse_filter != Control.MOUSE_FILTER_STOP:
+		failures.append("BurstTransition does not block input during navigation")
+	if transition.z_index < 100:
+		failures.append("BurstTransition is not layered above gameplay")
+	if transition.find_child("BurstCurve", true, false) == null:
+		failures.append("BurstTransition is missing its curved leading edge")
+	if transition.find_child("BurstTitle", true, false) == null:
+		failures.append("BurstTransition is missing the Atomize wordmark")
+
+	await create_timer(0.9).timeout
+	if main_scene.find_child("PrimeControls", true, false) == null:
+		failures.append("BurstTransition did not reveal gameplay for %s" % start_method)
+	if main_scene.find_child("BurstTransition", true, false) == null:
+		failures.append("BurstTransition exited before the gameplay reveal")
+
+	await create_timer(0.6).timeout
+	await process_frame
+	if main_scene.find_child("BurstTransition", true, false) != null:
+		failures.append("BurstTransition did not clean up after the reveal")
 
 func _validate_dialog_buttons(main_scene: Node, expected_texts: Array, failures: Array[String]) -> void:
 	var panel := main_scene.find_child("DialogPanel", true, false)
