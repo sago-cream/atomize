@@ -2,7 +2,7 @@
 
 Atomize has one production provider path:
 
-- GitHub repository `orangesago/atomize`, branch `main`, is the source of truth.
+- GitHub repository `sago-cream/atomize`, branch `main`, is the source of truth.
 - Vercel project `Hsi's Lab / atomize` owns the public web deployment. Git
   integration deploys `main`, and the tracked `vercel.json` owns build and
   routing configuration.
