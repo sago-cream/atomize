@@ -39,7 +39,7 @@ needed unless you are deliberately adding C# code.
 6. Clone the repo and open the Godot project:
 
     ```powershell
-    git clone https://github.com/Hsiii/Atomize.git
+    git clone https://github.com/orangesago/atomize.git
     cd Atomize
     bun install
     bun run godot
@@ -67,7 +67,7 @@ needed unless you are deliberately adding C# code.
 5. Clone the repo and open the Godot project:
 
     ```bash
-    git clone https://github.com/Hsiii/Atomize.git
+    git clone https://github.com/orangesago/atomize.git
     cd Atomize
     bun install
     bun run godot
@@ -128,7 +128,7 @@ needed unless you are deliberately adding C# code.
 6. Clone the repo and open the Godot project:
 
     ```bash
-    git clone https://github.com/Hsiii/Atomize.git
+    git clone https://github.com/orangesago/atomize.git
     cd Atomize
     bun install
     bun run godot
