@@ -36,6 +36,12 @@ func _run() -> void:
 		return
 
 	print("[Success] Godot menu flow and dialog spacing tests passed.")
+	# Give the audio mixer a turn to release the last short menu sound before
+	# the headless process exits; otherwise it reports the in-flight WAV pair.
+	for player in main_scene.sfx_players:
+		player.stop()
+		player.stream = null
+	await create_timer(0.2).timeout
 	main_scene.queue_free()
 	await process_frame
 	quit(0)

@@ -1,12 +1,12 @@
 # Atomize Godot Port
 
-This directory is a parallel Godot 4 project for the iOS and Android port.
+This directory is a parallel Godot 4.7 project for the iOS and Android port.
 The Vite app remains the web/PWA client.
 
 ## Setup From Zero
 
 Use this path when setting up a fresh machine with no repo tools installed yet.
-Atomize currently uses the standard Godot 4.4 editor. The .NET editor is not
+Atomize currently uses the standard Godot 4.7 editor. The .NET editor is not
 needed unless you are deliberately adding C# code.
 
 ### Windows
@@ -26,14 +26,14 @@ needed unless you are deliberately adding C# code.
     ```
 
 4. Download the standard Windows build from the
-   [Godot 4.4 stable archive](https://godotengine.org/download/archive/4.4-stable/).
+   [Godot 4.7 stable archive](https://godotengine.org/download/archive/4.7-stable/).
    Unzip it to a stable location such as `C:\Tools\Godot`.
 5. Make Godot discoverable. Either add the Godot folder to `PATH` so
    `godot --version` works, or create `.env.local` in the repository root after
    cloning:
 
     ```bash
-    GODOT_BIN=C:\Tools\Godot\Godot_v4.4-stable_win64.exe
+    GODOT_BIN=C:\Tools\Godot\Godot_v4.7-stable_win64.exe
     ```
 
 6. Clone the repo and open the Godot project:
@@ -62,7 +62,7 @@ needed unless you are deliberately adding C# code.
     ```
 
 4. Download the standard macOS build from the
-   [Godot 4.4 stable archive](https://godotengine.org/download/archive/4.4-stable/)
+   [Godot 4.7 stable archive](https://godotengine.org/download/archive/4.7-stable/)
    and move `Godot.app` to `/Applications`.
 5. Clone the repo and open the Godot project:
 
@@ -109,20 +109,20 @@ needed unless you are deliberately adding C# code.
     ```
 
 4. Download the standard Linux build from the
-   [Godot 4.4 stable archive](https://godotengine.org/download/archive/4.4-stable/)
+   [Godot 4.7 stable archive](https://godotengine.org/download/archive/4.7-stable/)
    and extract it to a stable location such as `~/Applications/godot`.
 5. Make Godot discoverable. Either symlink the executable somewhere on `PATH`:
 
     ```bash
     mkdir -p ~/.local/bin
-    ln -s ~/Applications/godot/Godot_v4.4-stable_linux.x86_64 ~/.local/bin/godot
+    ln -s ~/Applications/godot/Godot_v4.7-stable_linux.x86_64 ~/.local/bin/godot
     godot --version
     ```
 
     Or create `.env.local` in the repository root after cloning:
 
     ```bash
-    GODOT_BIN=/home/<you>/Applications/godot/Godot_v4.4-stable_linux.x86_64
+    GODOT_BIN=/home/<you>/Applications/godot/Godot_v4.7-stable_linux.x86_64
     ```
 
 6. Clone the repo and open the Godot project:
@@ -165,7 +165,7 @@ Use this path when Git, Bun, and Godot are already installed:
     bun install
     ```
 
-2. Install Godot 4.x.
+2. Install Godot 4.7 or newer.
 
     On macOS, the wrapper scripts auto-detect both common app bundle names:
 
@@ -257,7 +257,7 @@ Omitting Supabase values is expected for offline gameplay testing.
 
 Install these once per machine:
 
-- Godot 4.x export templates, installed from the Godot editor.
+- Godot 4.7 or newer export templates, installed from the Godot editor.
 - OpenJDK 17.
 - Android Studio with Android SDK Platform-Tools, Build-Tools, Platform 35,
   Command-line Tools, NDK, and CMake.
@@ -309,7 +309,7 @@ iOS export requires macOS with Xcode installed.
 
 Install these once per machine:
 
-- Godot 4.x export templates, installed from the Godot editor.
+- Godot 4.7 or newer export templates, installed from the Godot editor.
 - Xcode from the App Store or Apple Developer downloads.
 - Xcode command line tools:
 
@@ -425,3 +425,18 @@ These links are here for version-specific details, not for normal onboarding:
 - [Godot Android export requirements](https://docs.godotengine.org/en/stable/tutorials/export/exporting_for_android.html)
 - [Godot iOS export requirements](https://docs.godotengine.org/en/stable/tutorials/export/exporting_for_ios.html)
 - [Godot command-line export flags](https://docs.godotengine.org/en/stable/tutorials/export/exporting_projects.html)
+
+## Mobile Gameplay Verification
+
+Run `bun run godot:gameplay-flow` for the full tutorial, combat presentation,
+result timing and solo-clock checks. Run `bun run godot:mobile-flow` for native
+touch input, screen-space target sizes, safe-area layouts, app interruptions,
+scrolling, rapid damage feedback, audio lifetime and tween cleanup.
+
+The minimum canvas is 320×568. Local matches pause with their board and pending
+feedback intact; online matches keep running while the match menu is open.
+Compounds remain readable during their short entrance animation.
+
+For native captures, run `res://tests/render_gameplay.gd` or
+`res://tests/render_mobile_screens.gd`, setting `ATOMIZE_CAPTURE_DIR` to the output
+directory. These desktop captures do not replace physical iOS/Android testing.

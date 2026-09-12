@@ -38,10 +38,20 @@ export function requireGodotBinary(): string {
 
     if (!godotBinary) {
         console.error(
-            '[Error] Godot was not found. Install Godot 4.x or set GODOT_BIN=/path/to/godot.'
+            '[Error] Godot was not found. Install Godot 4.7 or newer, or set GODOT_BIN=/path/to/godot.'
         );
         process.exit(1);
     }
 
+    const version = spawnSync(godotBinary, ['--version'], { encoding: 'utf8' });
+    const versionText = version.stdout.trim();
+    const [major, minor] = versionText.split('.', 2);
+    const isSupported = Number(major) === 4 && Number(minor) >= 7;
+    if (!isSupported) {
+        console.error(
+            `[Error] Atomize requires Godot 4.7 or newer in the 4.x series. Found ${versionText || 'an unknown version'}. Set GODOT_BIN to a supported editor and install matching export templates.`
+        );
+        process.exit(1);
+    }
     return godotBinary;
 }
