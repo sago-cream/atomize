@@ -42,7 +42,6 @@ const _invite_endpoint : String = _auth_endpoint+"/invite"
 const _reset_password_endpoint : String = _auth_endpoint+"/recover"
 
 var tcp_server : TCPServer = TCPServer.new()
-var tcp_timer : Timer = Timer.new()
 
 var _config : Dictionary = {}
 var _header : PackedStringArray = []

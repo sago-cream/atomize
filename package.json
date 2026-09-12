@@ -11,6 +11,8 @@
         "godot": "bun run scripts/godot/open-project.ts",
         "godot:test": "bun run scripts/godot/import-project.ts && bun run scripts/godot/generate-core-fixtures.ts && bun run scripts/godot/run-core-parity.ts && bun run scripts/godot/run-save-manager.ts",
         "godot:smoke": "bun run scripts/godot/import-project.ts && bun run scripts/godot/run-screen-smoke.ts",
+        "godot:mobile-flow": "bun run scripts/godot/import-project.ts && bun run scripts/godot/run-mobile-flow.ts",
+        "godot:gameplay-flow": "bun run scripts/godot/import-project.ts && bun run scripts/godot/run-gameplay-flow.ts",
         "godot:menu-flow": "bun run scripts/godot/import-project.ts && bun run scripts/godot/run-menu-flow.ts",
         "godot:auth-live": "bun run scripts/godot/import-project.ts && bun run scripts/godot/run-supabase-auth-live.ts",
         "backend:start": "bunx supabase@2.109.1 start",

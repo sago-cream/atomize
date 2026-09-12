@@ -3,7 +3,7 @@ extends SceneTree
 const MAIN_SCENE := preload("res://scenes/Main.tscn")
 const Game := preload("res://scripts/core/game.gd")
 const SCREEN_ARG_PREFIX := "--atomize-screen="
-const QUEUE_CHIP_MIN_RADIUS := 14.0
+const QUEUE_CHIP_MIN_RADIUS := 13.0
 
 func _init() -> void:
 	call_deferred("_run")
