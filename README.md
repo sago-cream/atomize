@@ -93,6 +93,31 @@ trusted network with the host firewall enabled and stop it when finished.
 Production provider ownership and capacity boundaries are recorded in
 [`PROVIDERS.md`](PROVIDERS.md).
 
+## Development checks
+
+Run web checks from the terminal:
+
+```bash
+bun run lint
+bun run build
+```
+
+The build includes TypeScript checking. For native changes, run the checks that
+cover the affected behavior:
+
+| Change                         | Check                         |
+| ------------------------------ | ----------------------------- |
+| Gameplay rules or save data    | `bun run godot:test`          |
+| Screen rendering               | `bun run godot:smoke`         |
+| Mobile navigation and tutorial | `bun run godot:mobile-flow`   |
+| Solo and battle gameplay       | `bun run godot:gameplay-flow` |
+| Menu interactions              | `bun run godot:menu-flow`     |
+
+See [the native setup guide](godot/README.md) for Godot requirements and live
+backend checks. Inspect changed UI in the relevant client and include matched
+before/after evidence in UI pull requests. Documentation-only changes need link
+and formatting checks, not an editor or running app.
+
 ## Godot mobile port
 
 The parallel Godot iOS/Android port lives in `godot/`. The Vite app remains the
