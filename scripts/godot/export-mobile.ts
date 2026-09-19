@@ -18,7 +18,9 @@ const exportsByTarget = {
         preset: 'Android Debug',
     },
     ios: {
-        outputPath: path.resolve(GODOT_DIRECTORY, 'build/ios/atomize-ios.zip'),
+        outputPath:
+            process.env.IOS_EXPORT_PATH ??
+            path.resolve(GODOT_DIRECTORY, 'build/ios/atomize-ios.zip'),
         preset: 'iOS Debug',
     },
 } as const;
@@ -80,7 +82,7 @@ function setApplicationSetting(
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
-const iosTeamId = process.env.GODOT_IOS_TEAM_ID;
+const iosTeamId = process.env.GODOT_IOS_TEAM_ID ?? process.env.APPLE_TEAM_ID;
 let nextExportPresets = originalExportPresets;
 
 if (target === 'ios') {
@@ -101,6 +103,13 @@ if (target === 'ios') {
             '[Error] Could not find application/app_store_team_id in godot/export_presets.cfg.'
         );
         process.exit(1);
+    }
+
+    if (process.env.IOS_EXPORT_PROJECT_ONLY === '1') {
+        nextExportPresets += '\napplication/export_project_only=true\n';
+    }
+    if (process.env.GODOT_IOS_TEMPLATE_DEBUG) {
+        nextExportPresets += `\ncustom_template/debug="${escapeGodotString(process.env.GODOT_IOS_TEMPLATE_DEBUG)}"\n`;
     }
 }
 
