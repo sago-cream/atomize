@@ -8,6 +8,7 @@ func _init() -> void:
 	call_deferred("_run")
 
 func _run() -> void:
+	root.size = Vector2i(390, 844)
 	var main_scene := MAIN_SCENE.instantiate()
 	root.add_child(main_scene)
 	await process_frame
@@ -61,7 +62,7 @@ func _validate_player_name_dialog(main_scene: Node, failures: Array[String]) -> 
 	main_scene.call("_show_player_name_dialog")
 	await process_frame
 	var overlay := main_scene.get_node_or_null("PlayerNameOverlay")
-	_validate_dialog(overlay, Vector2(304, 352), ["Cancel", "Claim", "Continue as Guest"], failures, "player name")
+	_validate_dialog(overlay, Vector2(288, 352), ["Cancel", "Claim", "Continue as Guest"], failures, "player name")
 	if overlay != null and not bool(main_scene.call("_handle_back_navigation")):
 		failures.append("Back did not handle the player name dialog")
 	await process_frame
@@ -72,7 +73,7 @@ func _validate_reset_dialog(main_scene: Node, failures: Array[String]) -> void:
 	main_scene.call("_show_reset_best_dialog")
 	await process_frame
 	var overlay := main_scene.get_node_or_null("ResetBestOverlay")
-	_validate_dialog(overlay, Vector2(304, 236), ["Cancel", "Reset"], failures, "reset best")
+	_validate_dialog(overlay, Vector2(288, 236), ["Cancel", "Reset"], failures, "reset best")
 	if overlay != null and not bool(main_scene.call("_handle_back_navigation")):
 		failures.append("Back did not handle the reset dialog")
 	await process_frame
@@ -84,7 +85,7 @@ func _validate_pause_dialog(main_scene: Node, failures: Array[String]) -> void:
 	main_scene.call("_pause_game")
 	await process_frame
 	var overlay := main_scene.get_node_or_null("PauseOverlay")
-	_validate_dialog(overlay, Vector2(304, 248), ["Resume", "Restart Run", "Main Menu"], failures, "pause")
+	_validate_dialog(overlay, Vector2(288, 230.8), ["Resume", "Retry", "Top"], failures, "pause")
 	if overlay != null and not bool(main_scene.call("_handle_back_navigation")):
 		failures.append("Back did not resume from pause")
 	await process_frame
@@ -95,7 +96,7 @@ func _validate_game_over_dialog(main_scene: Node, failures: Array[String]) -> vo
 	main_scene.call("_build_game_over_layout")
 	await process_frame
 	var overlay := main_scene.get_node_or_null("GameOverOverlay")
-	_validate_dialog(overlay, Vector2(304, 408), ["Main Menu", "Play Again"], failures, "game over")
+	_validate_dialog(overlay, Vector2(288, 311.9), ["Top", "Retry"], failures, "game over")
 	main_scene.call("_start_home")
 	await process_frame
 
@@ -132,7 +133,7 @@ func _validate_battle_over_dialog(main_scene: Node, failures: Array[String]) -> 
 	main_scene.call("_build_battle_over_overlay")
 	await process_frame
 	var overlay := main_scene.get_node_or_null("BattleOverOverlay")
-	_validate_dialog(overlay, Vector2(304, 336), ["Rematch", "Main Menu"], failures, "battle over")
+	_validate_dialog(overlay, Vector2(320, 289.6), ["Rematch", "Top"], failures, "battle over")
 	main_scene.call("_start_home")
 	await process_frame
 

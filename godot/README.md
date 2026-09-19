@@ -428,12 +428,23 @@ These links are here for version-specific details, not for normal onboarding:
 
 ## Mobile Gameplay Verification
 
-Run `bun run godot:gameplay-flow` for the full tutorial, combat presentation,
-result timing and solo-clock checks. Run `bun run godot:mobile-flow` for native
-touch input, screen-space target sizes, safe-area layouts, app interruptions,
-scrolling, rapid damage feedback, audio lifetime and tween cleanup.
+Run `bun run godot:gameplay-flow` to tap through the tutorial on compact and
+notched phone layouts, finish the practice match, rematch, and exercise Solo
+queue editing, penalties, and time bonuses. These checks compare displayed HP
+and compound values with the match state after each submitted queue.
+Animation fixtures execute the web attack, heal, fault, and perfect-clear code
+and compare native particle positions, sizes, opacity, and timing across all
+severity tiers and both sides.
+`bun run godot:test` compares both players' queued attacks with TypeScript
+fixtures and checks event ordering across repeated combos.
 
-The minimum canvas is 320×568. Local matches pause with their board and pending
+Run `bun run godot:mobile-flow` for multitouch, canceled taps, held fingers across
+pause/resume, high-density icons, safe-area layouts, app interruptions,
+leaderboard touch scrolling, empty/error actions, rapid damage feedback, audio
+lifetime, and tween cleanup. Leaderboard layout checks use controlled responses.
+
+Layouts use device points, including 3× iPhone touch-coordinate checks, with
+320×568 as the smallest tested viewport. Local matches pause with their board and pending
 feedback intact; online matches keep running while the match menu is open.
 Compounds remain readable during their short entrance animation.
 

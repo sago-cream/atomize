@@ -15,7 +15,7 @@ detect_device_id() {
     local devices_json
     devices_json="$(mktemp)"
 
-    if ! xcrun devicectl list devices --json-output "$devices_json" >/dev/null; then
+    if ! xcrun devicectl list devices --timeout 15 --json-output "$devices_json" >/dev/null; then
         rm -f "$devices_json"
         return 1
     fi
@@ -41,7 +41,7 @@ detect_device_id() {
                 "$devices_json" 2>/dev/null || true
         )"
 
-        if [[ "$tunnel_state" != "connected" ]]; then
+        if [[ "$tunnel_state" != "connected" && "$tunnel_state" != "disconnected" ]]; then
             continue
         fi
 
@@ -64,7 +64,7 @@ detect_device_id() {
 }
 
 echo "Detecting connected iOS device..."
-DEVICE_ID="${IOS_DEVICE_ID:-$(detect_device_id)}"
+DEVICE_ID="${IOS_DEVICE_ID:-$(detect_device_id || true)}"
 if [[ -z "$DEVICE_ID" ]]; then
     echo "No connected iOS device found. Connect one, or set IOS_DEVICE_ID." >&2
     exit 1
