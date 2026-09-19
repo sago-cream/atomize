@@ -132,7 +132,7 @@ export const uiText = {
     emailSignupError: 'Could not create your account.',
     signupConfirmation:
         'Check your email to confirm your account, then log in.',
-    authUnavailable: 'Auth not configured in .env',
+    authUnavailable: 'Sign-in is currently unavailable. Please try again later.',
     nameSaveError: 'Could not save name.',
     userNameInvalid: 'Enter a user name.',
     googleProviderDisabled:

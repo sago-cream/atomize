@@ -26,6 +26,8 @@ type FriendStatus = {
     message: string;
 };
 
+type FriendSuggestion = Pick<FriendProfile, 'user_id' | 'player_name'>;
+
 type FriendshipRow = {
     id: string;
     created_at: string | null;
@@ -115,6 +117,10 @@ export function FriendsScreen({
     const [friends, setFriends] = useState<FriendProfile[]>([]);
     const [loadingFriends, setLoadingFriends] = useState(true);
     const [friendName, setFriendName] = useState('');
+    const [suggestions, setSuggestions] = useState<{
+        query: string;
+        profiles: FriendSuggestion[];
+    }>({ query: '', profiles: [] });
     const [saving, setSaving] = useState(false);
     const [removingFriendId, setRemovingFriendId] = useState<
         string | undefined
@@ -158,6 +164,73 @@ export function FriendsScreen({
             mounted = false;
         };
     }, [userId]);
+
+    const searchTerm = normalizePlayerName(friendName);
+    const friendSuggestions =
+        suggestions.query === searchTerm
+            ? suggestions.profiles.filter(
+                  (profile) => !friendIds.has(profile.user_id)
+              )
+            : [];
+
+    useEffect(() => {
+        const client = supabaseAuthClient;
+        if (!client || searchTerm.length < 2) {
+            return;
+        }
+
+        const controller = new AbortController();
+        const timer = globalThis.setTimeout(() => {
+            async function searchFriends() {
+                if (!client) {
+                    return;
+                }
+                const prefix = searchTerm.replaceAll(/[\\%_]/g, '\\$&');
+                let query = client
+                    .from('combo_leaderboard')
+                    .select('user_id, player_name')
+                    .ilike('player_name', `${prefix}%`)
+                    .neq('user_id', userId);
+
+                if (friendIds.size > 0) {
+                    query = query.not(
+                        'user_id',
+                        'in',
+                        `(${[...friendIds].join(',')})`
+                    );
+                }
+
+                const { data, error } = await query
+                    .order('player_name', { ascending: true })
+                    .limit(6)
+                    .abortSignal(controller.signal);
+
+                if (!controller.signal.aborted) {
+                    setSuggestions({
+                        query: searchTerm,
+                        profiles: error
+                            ? []
+                            : (data ?? []).filter((profile) =>
+                                  normalizePlayerName(
+                                      profile.player_name
+                                  ).startsWith(searchTerm)
+                              ),
+                    });
+                }
+            }
+
+            detachFriendAction(searchFriends(), () => {
+                if (!controller.signal.aborted) {
+                    setSuggestions({ query: searchTerm, profiles: [] });
+                }
+            });
+        }, 200);
+
+        return () => {
+            globalThis.clearTimeout(timer);
+            controller.abort();
+        };
+    }, [searchTerm, userId, friendIds]);
 
     async function addFriend() {
         if (!supabaseAuthClient) {
@@ -367,6 +440,7 @@ export function FriendsScreen({
                             autoCapitalize='words'
                             autoComplete='off'
                             className='friends-add-input'
+                            list='friend-name-suggestions'
                             disabled={saving}
                             maxLength={8}
                             onChange={(event) => {
@@ -375,6 +449,14 @@ export function FriendsScreen({
                             placeholder={uiText.friendsAddPlaceholder}
                             value={friendName}
                         />
+                        <datalist id='friend-name-suggestions'>
+                            {friendSuggestions.map((suggestion) => (
+                                <option
+                                    key={suggestion.user_id}
+                                    value={suggestion.player_name}
+                                />
+                            ))}
+                        </datalist>
                         <ActionButton
                             aria-label={uiText.friendsAddLabel}
                             className='friends-add-btn'
