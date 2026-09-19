@@ -7,6 +7,7 @@ import {
     startEmailSignIn,
     startEmailSignUp,
     startGoogleSignIn,
+    supabaseAuthClient,
 } from '../../lib/supabase';
 import { ActionButton } from '../game/ui/ActionButton';
 import { BackButton } from '../ui/BackButton';
@@ -148,6 +149,13 @@ export function AuthScreen({
     }
 
     const isLogin = mode === 'login';
+    const isAuthConfigured = Boolean(supabaseAuthClient);
+    const authDisabled = !isAuthConfigured || emailLoading || googleLoading;
+    const visibleStatus =
+        status ??
+        (!isAuthConfigured
+            ? { message: uiText.authUnavailable, tone: 'error' }
+            : undefined);
     const title = isLogin ? uiText.signIn : uiText.signUp;
     const submitLabel = isLogin
         ? uiText.emailPasswordAction
@@ -181,6 +189,7 @@ export function AuthScreen({
                                     autoCapitalize='words'
                                     autoComplete='nickname'
                                     className='auth-page-input'
+                                    disabled={!isAuthConfigured}
                                     maxLength={8}
                                     onChange={(event) => {
                                         setUserName(event.target.value);
@@ -197,6 +206,7 @@ export function AuthScreen({
                                 autoCapitalize='none'
                                 autoComplete='email'
                                 className='auth-page-input'
+                                disabled={!isAuthConfigured}
                                 inputMode='email'
                                 onChange={(event) => {
                                     setEmail(event.target.value);
@@ -216,6 +226,7 @@ export function AuthScreen({
                                         : 'new-password'
                                 }
                                 className='auth-page-input'
+                                disabled={!isAuthConfigured}
                                 onChange={(event) => {
                                     setPassword(event.target.value);
                                 }}
@@ -227,7 +238,7 @@ export function AuthScreen({
 
                         <ActionButton
                             className='auth-page-primary-action'
-                            disabled={emailLoading || googleLoading}
+                            disabled={authDisabled}
                             type='submit'
                             variant='primary'
                         >
@@ -246,7 +257,7 @@ export function AuthScreen({
 
                         <button
                             className='auth-page-google-button'
-                            disabled={emailLoading || googleLoading}
+                            disabled={authDisabled}
                             onClick={handleGoogleAuth}
                             type='button'
                         >
@@ -272,12 +283,12 @@ export function AuthScreen({
                         </p>
                     </section>
 
-                    {status ? (
+                    {visibleStatus ? (
                         <p
                             aria-live='polite'
-                            className={`auth-page-status auth-page-status-${status.tone}`}
+                            className={`auth-page-status auth-page-status-${visibleStatus.tone}`}
                         >
-                            {status.message}
+                            {visibleStatus.message}
                         </p>
                     ) : undefined}
                 </div>

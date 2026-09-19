@@ -55,6 +55,11 @@
     border-color: var(--color-outline-strong);
 }
 
+.auth-page-input:disabled {
+    opacity: var(--opacity-muted);
+    cursor: not-allowed;
+}
+
 .auth-page-primary-action {
     width: 100%;
     min-height: 3.5rem;
