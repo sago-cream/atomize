@@ -9,6 +9,7 @@ func _init() -> void:
 	call_deferred("_run")
 
 func _run() -> void:
+	root.size = Vector2i(390, 844)
 	var screen_name := _get_requested_screen()
 	var main_scene := MAIN_SCENE.instantiate()
 	root.add_child(main_scene)
@@ -54,9 +55,9 @@ func _validate_screen(main_scene: Node, screen_name: String) -> Array[String]:
 		"dialog-reset-best":
 			_validate_dialog_buttons(main_scene, ["Cancel", "Reset"], failures)
 		"dialog-pause":
-			_validate_dialog_buttons(main_scene, ["Resume", "Restart Run", "Main Menu"], failures)
+			_validate_dialog_buttons(main_scene, ["Resume", "Retry", "Top"], failures)
 		"dialog-game-over":
-			_validate_dialog_buttons(main_scene, ["Main Menu", "Play Again"], failures)
+			_validate_dialog_buttons(main_scene, ["Top", "Retry"], failures)
 		"home":
 			_expect_minimum_controls(main_scene, failures, 1, 2)
 		"battle":
@@ -192,17 +193,10 @@ func _validate_attack_vfx(main_scene: Node, failures: Array[String]) -> void:
 	if not actual_center.is_equal_approx(expected_center):
 		failures.append("AttackBullet does not use the web quadratic acceleration curve")
 
-	var flash_node: Node = main_scene.find_child("AttackImpactFlash", true, false)
-	if flash_node == null or not (flash_node is CanvasItem):
-		failures.append("attack VFX did not spawn delayed impact flash")
-	elif (flash_node as CanvasItem).modulate.a > 0.01:
-		failures.append("impact flash is visible before bullet impact")
-
-	var shockwave_node: Node = main_scene.find_child("AttackImpactShockwave", true, false)
-	if shockwave_node == null or not (shockwave_node is CanvasItem):
-		failures.append("attack VFX did not spawn delayed impact shockwave")
-	elif (shockwave_node as CanvasItem).modulate.a > 0.01:
-		failures.append("impact shockwave is visible before bullet impact")
+	for node_name in ["AttackTrail", "AttackImpactRing"]:
+		var particle := main_scene.find_child(node_name, true, false) as CanvasItem
+		if particle == null or particle.modulate.a > 0.01:
+			failures.append("attack VFX must keep %s hidden until its delay" % node_name)
 
 func _validate_battle_emotion_vfx(main_scene: Node, failures: Array[String]) -> void:
 	for method_name in ["_spawn_heal_stream", "_spawn_fault_shards", "_spawn_perfect_halo", "_spawn_battle_hit_flash"]:
@@ -215,6 +209,8 @@ func _validate_battle_emotion_vfx(main_scene: Node, failures: Array[String]) -> 
 	main_scene.call("_spawn_perfect_halo", Vector2(220, 300))
 	main_scene.call("_spawn_battle_hit_flash", true, 1)
 
+	for effect in main_scene.find_children("BattleSupportEffect*", "Control", false, false):
+		effect.advance(0.02)
 	for node_name in ["HealPulse", "HealMote", "FaultShard", "PerfectHalo", "PerfectOrbitMote", "BattleHitFlash"]:
 		if main_scene.find_child(node_name, true, false) == null:
 			failures.append("battle emotion VFX did not spawn %s" % node_name)

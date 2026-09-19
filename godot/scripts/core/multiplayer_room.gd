@@ -141,7 +141,8 @@ static func apply_battle_prime_selection(
 	snapshot_with_stage["stage"] = next_stage
 
 	if should_suppress_attack:
-		return with_players(snapshot_with_stage, next_players, null, false)
+		# Keep the last event so the completed combo receives the next event ID.
+		return with_players(snapshot_with_stage, next_players)
 
 	var last_event := (
 		{

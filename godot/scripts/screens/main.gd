@@ -2,7 +2,9 @@ extends Control
 
 const GameLayout := preload("res://scripts/screens/game_layout.gd")
 const ModalScrim := preload("res://assets/shaders/modal_scrim.gdshader")
+const BattleSupportEffect := preload("res://scripts/screens/battle_support_effect.gd")
 const NumberBlob := preload("res://scripts/screens/number_blob.gd")
+const TouchButton := preload("res://scripts/screens/touch_button.gd")
 
 const Game := preload("res://scripts/core/game.gd")
 const BattleRoom := preload("res://scripts/core/multiplayer_room.gd")
@@ -93,23 +95,18 @@ const HAPTIC_FAIL_MS := 36
 const DAMAGE_POP_SECONDS := 0.78
 const SOLO_SCORE_POP_SECONDS := 0.9
 const TIMER_PENALTY_POP_SECONDS := 0.7
+const BATTLE_MISS_SECONDS := 0.6
+const BATTLE_MISS_FADE_SECONDS := 0.15
 const BATTLE_HP_ZERO_HOLD_SECONDS := 0.9
 const BATTLE_ATTACK_FLIGHT_END := 0.82
 const BATTLE_ATTACK_IMPACT_START := 0.78
 const BATTLE_ATTACK_TRAIL_STEP := 0.06
-const BATTLE_ATTACK_LAUNCH_FLARE_SECONDS := 0.18
-const BATTLE_ATTACK_IMPACT_FLASH_SECONDS := 0.28
-const BATTLE_HEAL_STREAM_SECONDS := 0.66
-const BATTLE_HEAL_STREAM_STEP := 0.055
-const BATTLE_HEAL_PULSE_SECONDS := 0.52
-const BATTLE_FAULT_RICOCHET_SECONDS := 0.34
-const BATTLE_PERFECT_HALO_SECONDS := 0.78
 const SFX_BUS_NAME := "SFX"
 const SFX_POOL_SIZE := 8
 const SFX_SAMPLE_RATE := 22050
 const HOME_BLOB_SIZE := 144.0
-const HOME_BLOB_GAP := 16.0
-const HOME_MENU_BUTTON_SIZE := 48.0
+const HOME_BLOB_GAP := 24.0
+const HOME_MENU_BUTTON_SIZE := 44.0
 const SAFE_AREA_EDGE_PADDING := 12.0
 const SAFE_AREA_PAGE_PADDING := 24.0
 const SOLO_TARGET_SIZE := 272.0
@@ -121,9 +118,9 @@ const QUEUE_SEPARATOR_WIDTH := 7.0
 const BATTLE_QUEUE_SLOT_HEIGHT := 48.0
 const BATTLE_QUEUE_CONTROLS_GAP := 12.0
 const SOLO_CONTROL_BOTTOM_MARGIN := 64.0
-const PAGE_HEADER_BOTTOM := 224.0
-const DIALOG_WIDTH := 304.0
-const DIALOG_BUTTON_HEIGHT := 48.0
+const PAGE_HEADER_BOTTOM := 245.6
+const DIALOG_WIDTH := 288.0
+const DIALOG_BUTTON_HEIGHT := 44.0
 const BURST_ENTRY_SECONDS := 0.6
 const BURST_TITLE_DELAY_SECONDS := 0.35
 const BURST_TITLE_SECONDS := 0.3
@@ -177,8 +174,6 @@ const THEME_PANEL_FAULT_SHARD := "AtomPanelFaultShard"
 const THEME_PANEL_FAULT_GLOW := "AtomPanelFaultGlow"
 const THEME_PANEL_ATTACK_BALL_PRIMARY := "AtomPanelAttackBallPrimary"
 const THEME_PANEL_ATTACK_BALL_SECONDARY := "AtomPanelAttackBallSecondary"
-const THEME_PANEL_ATTACK_GLOW_PRIMARY := "AtomPanelAttackGlowPrimary"
-const THEME_PANEL_ATTACK_GLOW_SECONDARY := "AtomPanelAttackGlowSecondary"
 const THEME_PROGRESS_PRIMARY := "AtomProgressPrimary"
 const THEME_PROGRESS_SECONDARY := "AtomProgressSecondary"
 const THEME_PROGRESS_DANGER := "AtomProgressDanger"
@@ -370,7 +365,7 @@ const TUTORIAL_LESSONS := {
 	TutorialStep.ENEMY_TURN: {
 		"action": "Show attack",
 		"blocking": true,
-		"body": "Enemy clears cost you HP. Watch your HP bar.",
+		"body": "The small teal compound belongs to AtomBot. AtomBot factors it to attack you. Watch your HP bar.",
 		"position": "bottom",
 		"title": "Enemy turn",
 	},
@@ -443,6 +438,7 @@ var solo_time_left := SOLO_DURATION_SECONDS
 var prime_queue: Array[int] = []
 var resolving_queue: Array[int] = []
 var submitted_queue_length := 0
+var submitted_prime_queue: Array[int] = []
 var resolve_elapsed := 0.0
 var last_result_text := ""
 var keyboard_buffered_prime_input := ""
@@ -461,6 +457,7 @@ var tutorial_self_penalty_seen := false
 var tutorial_overflow_penalty_seen := false
 var tutorial_cpu_attack_allowed := false
 var tutorial_tracked_event_id := -1
+var tutorial_healed_hp := 0
 var battle_snapshot: Dictionary
 var battle_prime_queue: Array[int] = []
 var battle_resolving_queue: Array[int] = []
@@ -469,7 +466,11 @@ var battle_submitted_queue_length := 0
 var battle_resolve_elapsed := 0.0
 var battle_perfect_solve_eligible := false
 var battle_bot_elapsed := 0.0
-var battle_result_text := ""
+var battle_result_seconds_left := 0.0
+var battle_result_text := "":
+	set(value):
+		battle_result_text = value
+		battle_result_seconds_left = BATTLE_MISS_SECONDS if value in ["Miss", "-8"] else 0.0
 var battle_display_player_hp := -1
 var battle_display_bot_hp := -1
 var battle_display_event_id := -1
@@ -560,6 +561,25 @@ var player_name_status_label: Label
 var player_name_save_button: Button
 var player_name_cancel_button: Button
 var player_name_guest_button: Button
+
+func _enter_tree() -> void:
+	_configure_viewport_scale()
+	get_window().size_changed.connect(_configure_viewport_scale)
+
+func _configure_viewport_scale() -> void:
+	# iOS reports physical pixels; layout uses the same points as the web viewport.
+	var pixel_ratio := _display_pixel_ratio()
+	var window := get_window()
+	var point_size := Vector2i(Vector2(window.size) / maxf(1.0, pixel_ratio))
+	if window.content_scale_size != point_size:
+		window.content_scale_size = point_size
+
+func _display_pixel_ratio() -> float:
+	if OS.has_feature("ios"):
+		return DisplayServer.screen_get_scale()
+	if OS.has_feature("android"):
+		return maxf(1.0, DisplayServer.screen_get_dpi() / 160.0)
+	return 1.0
 
 func _ready() -> void:
 	resized.connect(_reflow_game_layout)
@@ -1333,6 +1353,11 @@ func _process(delta: float) -> void:
 	_poll_realtime_lobby(delta)
 
 	if screen == Screen.BATTLE_GAME:
+		if battle_result_seconds_left > 0.0:
+			battle_result_seconds_left = maxf(0.0, battle_result_seconds_left - delta)
+			if battle_result_seconds_left == 0.0:
+				battle_result_text = ""
+			_render_battle_result()
 		var was_busy := battle_was_visually_busy
 		battle_visuals_left = maxf(0.0, battle_visuals_left - delta)
 		battle_was_visually_busy = _battle_visuals_busy()
@@ -1930,6 +1955,7 @@ func _reset_tutorial_runtime(active: bool) -> void:
 	tutorial_overflow_penalty_seen = false
 	tutorial_cpu_attack_allowed = false
 	tutorial_tracked_event_id = -1
+	tutorial_healed_hp = 0
 
 func _set_tutorial_cpu_hp(snapshot: Dictionary) -> Dictionary:
 	var next_snapshot := snapshot.duplicate(true)
@@ -2172,13 +2198,13 @@ func _build_home_layout() -> void:
 	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(background)
 
-	var version_label := _make_absolute_label(_app_version_label(), 13, COLOR_TEXT_INVERSE_SOFT, 600)
+	var version_label := _make_absolute_label(_app_version_label(), 11, COLOR_TEXT_INVERSE_SOFT, 600)
 	version_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	version_label.position = Vector2(SAFE_AREA_EDGE_PADDING + safe_left, SAFE_AREA_EDGE_PADDING + safe_top)
+	version_label.position = Vector2(maxf(14.4, safe_left), maxf(14.4, safe_top))
+	version_label.z_index = 1
 	version_label.size = Vector2(96.0, 24.0)
 	add_child(version_label)
 
-	var hero_height: float = min(384.0, viewport_size.y * 0.48)
 	var hero_diameter: float = max(viewport_size.x * 1.6, viewport_size.y * 1.3)
 	var hero := Panel.new()
 	hero.position = Vector2((viewport_size.x - hero_diameter) / 2.0, (viewport_size.y * 0.5) - hero_diameter)
@@ -2193,15 +2219,16 @@ func _build_home_layout() -> void:
 		(viewport_size.y * 0.25) - 36.0
 	)
 	add_child(title_row)
-	_add_home_level_badge(viewport_size, title_row.position.y + title_row.size.y + 4.0)
+	_add_home_level_badge(viewport_size, viewport_size.y * 0.25 + 40.0)
 
-	var total_blob_width := (HOME_BLOB_SIZE * 2.0) + HOME_BLOB_GAP
+	var blob_size := minf(viewport_size.x * 0.38, HOME_BLOB_SIZE)
+	var total_blob_width := (blob_size * 2.0) + HOME_BLOB_GAP
 	var blob_left := (viewport_size.x - total_blob_width) / 2.0
-	var blob_top := hero_height + 96.0
+	var blob_top := viewport_size.y * 0.48 + (viewport_size.y * 0.52 - maxf(40.0, _safe_area_bottom()) - blob_size) / 2.0
 
 	if needs_tutorial:
 		var play_button := _make_home_blob_button("Play", _start_tutorial_game, COLOR_PRIMARY_STRONG, "play")
-		play_button.position = Vector2((viewport_size.x - HOME_BLOB_SIZE) / 2.0, blob_top)
+		play_button.position = Vector2((viewport_size.x - blob_size) / 2.0, blob_top)
 		add_child(play_button)
 		_start_home_blob_idle(play_button, false)
 		return
@@ -2212,7 +2239,7 @@ func _build_home_layout() -> void:
 	_start_home_blob_idle(solo_button, false)
 
 	var battle_button := _make_home_blob_button("Battle", _start_battle_picker, COLOR_SECONDARY, "battle")
-	battle_button.position = Vector2(blob_left + HOME_BLOB_SIZE + HOME_BLOB_GAP, blob_top)
+	battle_button.position = Vector2(blob_left + blob_size + HOME_BLOB_GAP, blob_top)
 	add_child(battle_button)
 	_start_home_blob_idle(battle_button, true)
 
@@ -2221,23 +2248,23 @@ func _build_home_layout() -> void:
 func _add_home_level_badge(viewport_size: Vector2, top: float) -> void:
 	var level := _calculate_level(player_experience)
 	var badge := Panel.new()
-	badge.size = Vector2(88, 32)
+	badge.size = Vector2(57.2 + maxf(0.0, str(level).length() - 1) * 8.0, 32)
 	badge.position = Vector2((viewport_size.x - badge.size.x) / 2.0, top)
-	_apply_panel_theme(badge, THEME_PANEL_BADGE_SURFACE)
+	badge.add_theme_stylebox_override("panel", _make_capsule_style(Color(1, 1, 1, 0.24), COLOR_BORDER_INVERSE_SOFT, 2))
 	add_child(badge)
 
-	var label := _make_absolute_label("Lv. %d" % level, 13, COLOR_PRIMARY, 800)
+	var label := _make_absolute_label("Lv. %d" % level, 12, COLOR_TEXT_INVERSE, 700)
 	label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	badge.add_child(label)
 
 func _build_home_menu_controls(viewport_size: Vector2, safe_top: float, safe_right: float) -> void:
 	var menu_button_position := Vector2(
-		viewport_size.x - HOME_MENU_BUTTON_SIZE - SAFE_AREA_EDGE_PADDING - safe_right,
-		SAFE_AREA_EDGE_PADDING + safe_top
+		viewport_size.x - HOME_MENU_BUTTON_SIZE - maxf(SAFE_AREA_EDGE_PADDING, safe_right),
+		maxf(SAFE_AREA_EDGE_PADDING, safe_top)
 	)
 
 	if home_menu_open:
-		var dismiss_button := Button.new()
+		var dismiss_button := TouchButton.new()
 		dismiss_button.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		dismiss_button.text = ""
 		dismiss_button.flat = true
@@ -2247,7 +2274,7 @@ func _build_home_menu_controls(viewport_size: Vector2, safe_top: float, safe_rig
 
 		var dropdown := VBoxContainer.new()
 		dropdown.position = Vector2(
-			viewport_size.x - HOME_MENU_BUTTON_SIZE - SAFE_AREA_EDGE_PADDING - safe_right,
+			viewport_size.x - HOME_MENU_BUTTON_SIZE - maxf(SAFE_AREA_EDGE_PADDING, safe_right),
 			menu_button_position.y + HOME_MENU_BUTTON_SIZE + 4.0
 		)
 		dropdown.size = Vector2(HOME_MENU_BUTTON_SIZE, 208.0)
@@ -2373,13 +2400,13 @@ func _build_leaderboard_layout() -> void:
 
 	_build_page_header("Leaderboard", "Top players.", "trophy")
 
-	var body_width: float = min(viewport_size.x - 48.0, 352.0)
+	var body_width: float = min(viewport_size.x - 8.0, 344.0)
 	var body_left: float = (viewport_size.x - body_width) / 2.0
 
 	leaderboard_status_label = _make_absolute_label("", 15, COLOR_INK_SOFT, 700)
 	leaderboard_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	leaderboard_status_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	leaderboard_status_label.position = Vector2(body_left, 276.0 + safe_top)
+	leaderboard_status_label.position = Vector2(body_left, PAGE_HEADER_BOTTOM + 8.0 + safe_top)
 	leaderboard_status_label.size = Vector2(body_width, 64)
 	leaderboard_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	add_child(leaderboard_status_label)
@@ -2391,14 +2418,14 @@ func _build_leaderboard_layout() -> void:
 
 	var scroll := ScrollContainer.new()
 	scroll.name = "LeaderboardScroll"
-	scroll.position = Vector2(body_left, 276.0 + safe_top)
+	scroll.position = Vector2(body_left, PAGE_HEADER_BOTTOM + 8.0 + safe_top)
 	scroll.size = Vector2(body_width, maxf(44.0, viewport_size.y - scroll.position.y - 16.0 - _safe_area_bottom()))
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	add_child(scroll)
 	leaderboard_rows_root = VBoxContainer.new()
 	leaderboard_rows_root.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	leaderboard_rows_root.size = Vector2(body_width - 12.0, 0)
-	leaderboard_rows_root.add_theme_constant_override("separation", 8)
+	leaderboard_rows_root.add_theme_constant_override("separation", 0)
 	scroll.add_child(leaderboard_rows_root)
 
 	_render_leaderboard()
@@ -2526,6 +2553,7 @@ func _render_leaderboard() -> void:
 	leaderboard_status_label.text = leaderboard_status_text
 	leaderboard_status_label.visible = not leaderboard_status_text.is_empty()
 	leaderboard_empty_button.visible = leaderboard_entries.is_empty()
+	leaderboard_rows_root.get_parent().visible = not leaderboard_entries.is_empty()
 
 	if not leaderboard_entries.is_empty():
 		_add_leaderboard_header(leaderboard_rows_root, leaderboard_rows_root.get_parent().size.x - 12.0)
@@ -2535,22 +2563,23 @@ func _render_leaderboard() -> void:
 
 func _add_leaderboard_header(parent: VBoxContainer, width: float) -> void:
 	var header := Control.new()
+	header.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	header.custom_minimum_size = Vector2(width, 28)
 	parent.add_child(header)
 
-	var rank_label := _make_absolute_label("RANK", 11, COLOR_INK_SOFT, 800)
+	var rank_label := _make_absolute_label("RANK", 11, COLOR_INK_SOFT, 600, 1)
 	rank_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	rank_label.position = Vector2(0, 0)
 	rank_label.size = Vector2(56, 24)
 	header.add_child(rank_label)
 
-	var player_label := _make_absolute_label("PLAYER", 11, COLOR_INK_SOFT, 800)
+	var player_label := _make_absolute_label("PLAYER", 11, COLOR_INK_SOFT, 600, 1)
 	player_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	player_label.position = Vector2(64, 0)
 	player_label.size = Vector2(max(96.0, width - 160.0), 24)
 	header.add_child(player_label)
 
-	var score_label := _make_absolute_label("HIGH SCORE", 11, COLOR_INK_SOFT, 800)
+	var score_label := _make_absolute_label("HIGH SCORE", 11, COLOR_INK_SOFT, 600, 1)
 	score_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	score_label.position = Vector2(width - 88.0, 0)
 	score_label.size = Vector2(88, 24)
@@ -2558,24 +2587,32 @@ func _add_leaderboard_header(parent: VBoxContainer, width: float) -> void:
 
 func _add_leaderboard_row(parent: VBoxContainer, rank: int, entry: Dictionary, width: float) -> void:
 	var row := Control.new()
-	row.custom_minimum_size = Vector2(width, 44)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.custom_minimum_size = Vector2(width, 39.4)
+	if rank < leaderboard_entries.size():
+		var rule := ColorRect.new()
+		rule.color = COLOR_BORDER_SOFT
+		rule.position = Vector2(0, 38.4)
+		rule.size = Vector2(width, 1)
+		rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(rule)
 	parent.add_child(row)
 
 	var rank_color := COLOR_GOLD if rank == 1 else COLOR_PRIMARY
-	var rank_label := _make_absolute_label("#%s" % rank, 14, rank_color, 900)
+	var rank_label := _make_absolute_label("#%s" % rank, 14, rank_color, 700)
 	rank_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	rank_label.position = Vector2(0, 6)
 	rank_label.size = Vector2(56, 28)
 	row.add_child(rank_label)
 
-	var player_label := _make_absolute_label(str(entry["player_name"]), 15, COLOR_INK, 800)
+	var player_label := _make_absolute_label(str(entry["player_name"]), 16, COLOR_GOLD if rank == 1 else COLOR_INK, 700)
 	player_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	player_label.clip_text = true
 	player_label.position = Vector2(64, 6)
 	player_label.size = Vector2(max(96.0, width - 160.0), 28)
 	row.add_child(player_label)
 
-	var score_label := _make_absolute_label(str(int(entry["high_score"])), 15, COLOR_PRIMARY, 900)
+	var score_label := _make_absolute_label(str(int(entry["high_score"])), 14, rank_color, 700)
 	score_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	score_label.position = Vector2(width - 88.0, 6)
 	score_label.size = Vector2(88, 28)
@@ -2600,14 +2637,14 @@ func _build_page_header(title_text: String, tagline_text: String, icon_kind: Str
 	back_button.position = Vector2(SAFE_AREA_EDGE_PADDING + _safe_area_left(), _safe_top_y(24.0))
 	add_child(back_button)
 
-	var title := _make_absolute_label(title_text.to_upper(), 16, COLOR_TEXT_INVERSE, 900)
-	title.position = Vector2(0, _safe_top_y(28.0))
-	title.size = Vector2(viewport_size.x, 36)
+	var title := _make_absolute_label(title_text.to_upper(), 16, COLOR_TEXT_INVERSE, 700)
+	title.position = Vector2(0, _safe_top_y(24.0))
+	title.size = Vector2(viewport_size.x, 46.4)
 	add_child(title)
 
 	var icon_slot := Control.new()
-	icon_slot.position = Vector2((viewport_size.x - 84.0) / 2.0, _safe_top_y(94.0))
-	icon_slot.size = Vector2(84, 72)
+	icon_slot.position = Vector2((viewport_size.x - 72.0) / 2.0, _safe_top_y(94.4))
+	icon_slot.size = Vector2(72, 72)
 	add_child(icon_slot)
 
 	match icon_kind:
@@ -2618,9 +2655,9 @@ func _build_page_header(title_text: String, tagline_text: String, icon_kind: Str
 		_:
 			_add_page_battle_icon(icon_slot)
 
-	var tagline := _make_absolute_label(tagline_text.to_upper(), 12, COLOR_TEXT_INVERSE_SOFT, 800)
-	tagline.position = Vector2(0, _safe_top_y(176.0))
-	tagline.size = Vector2(viewport_size.x, 24)
+	var tagline := _make_absolute_label(tagline_text.to_upper(), 11, Color(1, 1, 1, 0.75), 600, 1)
+	tagline.position = Vector2(0, _safe_top_y(174.4))
+	tagline.size = Vector2(viewport_size.x, 15.2)
 	add_child(tagline)
 
 func _build_solo_pregame_layout() -> void:
@@ -2636,48 +2673,45 @@ func _build_solo_pregame_layout() -> void:
 
 	_build_page_header("Solo", "Beat the clock.", "timer")
 
-	var body_width: float = min(viewport_size.x - 48.0, 352.0)
-	var body_left: float = (viewport_size.x - body_width) / 2.0
-	var stat_width: float = min(body_width, 256.0)
-	var stat_left: float = (viewport_size.x - stat_width) / 2.0
-	var button_width: float = body_width
-	var button_left: float = (viewport_size.x - button_width) / 2.0
-
-	var stat_panel := Panel.new()
-	stat_panel.position = Vector2(stat_left, 284.0 + safe_top)
-	stat_panel.size = Vector2(stat_width, 152.0)
-	_apply_panel_theme(stat_panel, THEME_PANEL_SURFACE)
+	var stat_width := minf(viewport_size.x - 48.0, 224.0)
+	var body_height := 235.5
+	var body_top := PAGE_HEADER_BOTTOM + safe_top + maxf(0.0, (viewport_size.y - PAGE_HEADER_BOTTOM - safe_top - body_height - maxf(0.0, _safe_area_bottom() - 32.0)) / 2.0)
+	var stat_panel := Control.new()
+	stat_panel.name = "PersonalBest"
+	stat_panel.position = Vector2((viewport_size.x - stat_width) / 2.0, body_top)
+	stat_panel.size = Vector2(stat_width, 107.5)
+	stat_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(stat_panel)
 
-	var pb_title := _make_absolute_label("PERSONAL BEST", 12, COLOR_INK_SOFT, 800)
-	pb_title.position = Vector2(16.0, 16.0)
-	pb_title.size = Vector2(stat_width - 32.0, 24)
+	var pb_title := _make_absolute_label("PERSONAL BEST", 11, COLOR_INK_SOFT, 600, 1)
+	pb_title.position = Vector2.ZERO
+	pb_title.size = Vector2(stat_width, 14.7)
 	stat_panel.add_child(pb_title)
+	_add_pregame_stat_row(stat_panel, 16.0, 22.7, stat_width - 32.0, "Score", best_score)
+	_add_pregame_stat_row(stat_panel, 16.0, 69.1, stat_width - 32.0, "Max Combo", best_combo)
 
-	_add_pregame_stat_row(stat_panel, 16.0, 52.0, stat_width - 32.0, "Score", best_score)
-	_add_pregame_stat_row(stat_panel, 16.0, 96.0, stat_width - 32.0, "Max Combo", best_combo)
-
+	var button_width := minf(352.0, viewport_size.x * 0.75)
 	var start_button := _make_wide_page_button("GO", _start_solo_game, COLOR_PRIMARY_STRONG)
-	start_button.position = Vector2(button_left, minf(492.0 + safe_top, _safe_bottom_y(viewport_size.y, 56.0, 48.0)))
+	start_button.position = Vector2((viewport_size.x - button_width) / 2.0, body_top + 147.5)
 	start_button.size = Vector2(button_width, 56)
 	add_child(start_button)
 
 func _add_pregame_stat_row(parent: Control, left: float, top: float, width: float, label_text: String, value: int) -> void:
 	var row := Control.new()
 	row.position = Vector2(left, top)
-	row.size = Vector2(width, 32)
+	row.size = Vector2(width, 38.4)
 	parent.add_child(row)
 
-	var label := _make_absolute_label(label_text, 16, COLOR_INK, 800)
+	var label := _make_absolute_label(label_text, 16, COLOR_INK, 700)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	label.position = Vector2.ZERO
-	label.size = Vector2(width / 2.0, 32)
+	label.size = Vector2(width * 0.75, 38.4)
 	row.add_child(label)
 
-	var value_label := _make_absolute_label(str(value), 18, COLOR_PRIMARY, 900)
+	var value_label := _make_absolute_label(str(value), 14, COLOR_PRIMARY, 700)
 	value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	value_label.position = Vector2(width / 2.0, 0)
-	value_label.size = Vector2(width / 2.0, 32)
+	value_label.position = Vector2(width * 0.75, 0)
+	value_label.size = Vector2(width * 0.25, 38.4)
 	row.add_child(value_label)
 
 func _build_battle_picker_layout() -> void:
@@ -2694,20 +2728,20 @@ func _build_battle_picker_layout() -> void:
 	_build_page_header("Battle", "Outsmart them.", "battle")
 	var body_start := get_child_count()
 
-	var body_width: float = min(viewport_size.x - 48.0, 352.0)
+	var body_width: float = min(viewport_size.x - 48.0, 368.0)
 	var body_left: float = (viewport_size.x - body_width) / 2.0
 
-	_add_battle_section_title(body_left, 262.0 + safe_top, "cpu", "CPU Training")
+	_add_battle_section_title(body_left, 257.6 + safe_top, "cpu", "CPU Training")
 	_add_battle_picker_row(body_left, 300.0 + safe_top, body_width, "bot", BATTLE_BOT_NAME, "Play", false, _start_battle_ready)
 
-	var online_section_top := 384.0 + safe_top
+	var online_section_top := 380.0 + safe_top
 	if not realtime_pending_invitation.is_empty():
 		_add_realtime_invitation_card(body_left, online_section_top, body_width)
 		online_section_top += 128.0
 
 	_add_battle_section_title(body_left, online_section_top, "users", "Online Players")
-	_add_battle_online_state(body_left, online_section_top + 38.0, body_width)
-	_wrap_page_body_in_scroll(body_start, 248.0 + safe_top)
+	_add_battle_online_state(body_left, online_section_top + 30.4, body_width)
+	_wrap_page_body_in_scroll(body_start, PAGE_HEADER_BOTTOM + safe_top)
 
 func _wrap_page_body_in_scroll(first_child: int, top: float) -> void:
 	var body_children := get_children().slice(first_child)
@@ -2729,6 +2763,13 @@ func _wrap_page_body_in_scroll(first_child: int, top: float) -> void:
 		var original_position: Vector2 = child.position
 		child.reparent(body, false)
 		child.position = original_position - Vector2(0, top)
+	_allow_scroll_input(body)
+
+func _allow_scroll_input(node: Node) -> void:
+	if node is Control and node.mouse_filter == Control.MOUSE_FILTER_STOP:
+		node.mouse_filter = Control.MOUSE_FILTER_PASS
+	for child in node.get_children():
+		_allow_scroll_input(child)
 
 func _add_realtime_invitation_card(left: float, top: float, width: float) -> void:
 	var panel := Panel.new()
@@ -2757,20 +2798,20 @@ func _add_realtime_invitation_card(left: float, top: float, width: float) -> voi
 
 func _add_battle_section_title(left: float, top: float, icon_kind: String, label_text: String) -> void:
 	var icon_slot := Control.new()
-	icon_slot.position = Vector2(left, top + 2.0)
-	icon_slot.size = Vector2(20, 20)
+	icon_slot.position = Vector2(left, top)
+	icon_slot.size = Vector2(17, 17)
 	icon_slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(icon_slot)
 
 	if icon_kind == "cpu":
-		_add_cpu_icon(icon_slot, 20, COLOR_KEYPAD_BUTTON_TEXT)
+		_add_cpu_icon(icon_slot, 17, COLOR_KEYPAD_BUTTON_TEXT)
 	else:
-		_add_users_icon(icon_slot, 20, COLOR_KEYPAD_BUTTON_TEXT)
+		_add_users_icon(icon_slot, 17, COLOR_KEYPAD_BUTTON_TEXT)
 
-	var label := _make_absolute_label(label_text.to_upper(), 12, COLOR_INK_SOFT, 800)
+	var label := _make_absolute_label(label_text.to_upper(), 11, COLOR_INK_SOFT, 600, 1)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	label.position = Vector2(left + 26.0, top)
-	label.size = Vector2(220, 24)
+	label.position = Vector2(left + 24.0, top)
+	label.size = Vector2(240, 17)
 	add_child(label)
 
 func _add_battle_picker_row(
@@ -2784,40 +2825,40 @@ func _add_battle_picker_row(
 	callback: Callable
 ) -> void:
 	var avatar_color := COLOR_SECONDARY if avatar_kind == "bot" else COLOR_PRIMARY_STRONG
-	var avatar := _make_avatar_icon_circle(44, avatar_color, avatar_kind)
+	var avatar := _make_avatar_icon_circle(40, avatar_color, avatar_kind)
 	avatar.position = Vector2(left, top)
 	add_child(avatar)
 
-	var name := _make_absolute_label(name_text, 16, COLOR_INK, 800)
+	var name := _make_absolute_label(name_text, 14, COLOR_INK, 700)
 	name.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	name.position = Vector2(left + 54.0, top + 10.0)
-	name.size = Vector2(maxf(44.0, width - 154.0), 28)
+	name.position = Vector2(left + 52.0, top + 6.0)
+	name.size = Vector2(maxf(44.0, width - 144.0), 28)
 	name.clip_text = true
 	add_child(name)
 
-	var action := Button.new()
+	var action := TouchButton.new()
 	action.text = action_text
 	action.disabled = disabled
 	_apply_button_theme(action, THEME_BUTTON_SMALL_PRIMARY)
-	action.position = Vector2(left + width - 88.0, top)
-	action.size = Vector2(88, 44)
+	action.position = Vector2(left + width - 80.0, top - 2.0)
+	action.size = Vector2(80, 44)
 	_wire_button_feedback(action, "start")
 	if not disabled:
 		action.pressed.connect(callback)
 	add_child(action)
 
 func _add_battle_online_state(left: float, top: float, width: float) -> void:
-	battle_online_status_label = _make_absolute_label("", 13, COLOR_INK_SOFT, 700)
+	battle_online_status_label = _make_absolute_label("", 11, COLOR_INK_SOFT, 700)
 	battle_online_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	battle_online_status_label.position = Vector2(left, top + 10.0)
-	battle_online_status_label.size = Vector2(width, 24)
+	battle_online_status_label.position = Vector2(left, top + 10.4)
+	battle_online_status_label.size = Vector2(width, 16.3)
 	battle_online_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	add_child(battle_online_status_label)
 
-	battle_online_hint_label = _make_absolute_label("Players will appear here when they join.", 13, COLOR_INK_SOFT_HINT, 600)
+	battle_online_hint_label = _make_absolute_label("Players will appear here when they join.", 11, COLOR_INK_SOFT_HINT, 600)
 	battle_online_hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	battle_online_hint_label.position = Vector2(left, top + 34.0)
-	battle_online_hint_label.size = Vector2(width, 28)
+	battle_online_hint_label.position = Vector2(left, top + 30.9)
+	battle_online_hint_label.size = Vector2(width, 16.3)
 	battle_online_hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	add_child(battle_online_hint_label)
 
@@ -2882,26 +2923,27 @@ func _add_battle_online_row(parent: VBoxContainer, player: Dictionary, width: fl
 	avatar.position = Vector2(0.0, 12.0)
 	row.add_child(avatar)
 
-	var name := _make_absolute_label(player_name, 16, COLOR_INK, 800)
+	var name := _make_absolute_label(player_name, 14, COLOR_INK, 700)
 	name.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	name.clip_text = true
 	name.position = Vector2(52.0, 18.0)
-	name.size = Vector2(max(104.0, width - 152.0), 28)
+	name.size = Vector2(maxf(44.0, width - 144.0), 28)
 	row.add_child(name)
 
 	var player_id := str(player.get("player_id", ""))
 	var player_status := str(player.get("status", "lobby"))
 	var is_invited := realtime_invited_player_ids.has(player_id)
-	var action := Button.new()
+	var action := TouchButton.new()
 	action.disabled = player_status != "lobby" or is_invited
 	action.text = "Invited" if is_invited else ("Invite" if player_status == "lobby" else _format_realtime_status(player_status))
 	_apply_button_theme(action, THEME_BUTTON_SMALL_SURFACE if action.disabled else THEME_BUTTON_SMALL_PRIMARY)
-	action.position = Vector2(width - 88.0, 10.0)
-	action.size = Vector2(88, 44)
+	action.position = Vector2(width - 80.0, 10.0)
+	action.size = Vector2(80, 44)
 	_wire_button_feedback(action, "tap")
 	if not action.disabled:
 		action.pressed.connect(_start_hosted_realtime_room.bind(player_id))
 	row.add_child(action)
+	_allow_scroll_input(row)
 
 func _format_realtime_status(status: String) -> String:
 	match status:
@@ -2958,7 +3000,7 @@ func _build_battle_ready_layout() -> void:
 	_clear_screen()
 
 	var viewport_size := get_viewport_rect().size
-	var safe_top := _safe_area_top()
+	var stack_top := (viewport_size.y - 311.4) / 2.0
 
 	var background := ColorRect.new()
 	background.color = COLOR_PRIMARY
@@ -2966,7 +3008,7 @@ func _build_battle_ready_layout() -> void:
 	add_child(background)
 
 	var back_button := _make_header_icon_button("←", _start_battle_picker)
-	back_button.position = Vector2(SAFE_AREA_EDGE_PADDING + _safe_area_left(), _safe_top_y(18.0))
+	back_button.position = Vector2(maxf(12.0, _safe_area_left()), maxf(12.0, _safe_area_top()))
 	add_child(back_button)
 
 	var opponent = _battle_opponent_player()
@@ -2983,19 +3025,19 @@ func _build_battle_ready_layout() -> void:
 	else:
 		opponent_avatar = _make_avatar_icon_circle(80, COLOR_SECONDARY, "bot")
 
-	opponent_avatar.position = Vector2((viewport_size.x - 80.0) / 2.0, 268.0 + safe_top)
+	opponent_avatar.position = Vector2((viewport_size.x - 80.0) / 2.0, stack_top)
 	if opponent_ready or not _is_realtime_room_active():
 		_add_ready_badge(opponent_avatar, 20)
 	add_child(opponent_avatar)
 
-	var opponent_label := _make_absolute_label(opponent_name, 15, COLOR_TEXT_INVERSE_SUBTLE, 800)
-	opponent_label.position = Vector2(0, 354.0 + safe_top)
+	var opponent_label := _make_absolute_label(opponent_name, 14, COLOR_TEXT_INVERSE_SUBTLE, 700)
+	opponent_label.position = Vector2(0, stack_top + 88.0)
 	opponent_label.size = Vector2(viewport_size.x, 24)
 	add_child(opponent_label)
 
-	var versus := _make_absolute_label("VS", 46, COLOR_TEXT_INVERSE_SUBTLE, 900)
-	versus.position = Vector2(0, 394.0 + safe_top)
-	versus.size = Vector2(viewport_size.x, 56)
+	var versus := _make_absolute_label("VS", 48, COLOR_TEXT_INVERSE_SUBTLE, 900, 3)
+	versus.position = Vector2(0, stack_top + 131.7)
+	versus.size = Vector2(viewport_size.x, 48)
 	add_child(versus)
 
 	var local_player = _battle_local_player()
@@ -3005,20 +3047,26 @@ func _build_battle_ready_layout() -> void:
 	if player_initial.is_empty():
 		player_initial = BATTLE_GUEST_NAME.substr(0, 1)
 
-	var player_avatar := _make_avatar_initial_circle(80, COLOR_PRIMARY_STRONG, player_initial, 20)
-	player_avatar.position = Vector2((viewport_size.x - 80.0) / 2.0, 470.0 + safe_top)
+	var player_avatar := _make_avatar_initial_circle(80, COLOR_PRIMARY_STRONG, "" if local_player_name.begins_with(BATTLE_GUEST_NAME) else player_initial, 20)
+	if local_player_name.begins_with(BATTLE_GUEST_NAME):
+		var dot := Panel.new()
+		dot.size = Vector2(16, 16)
+		dot.position = Vector2(32, 32)
+		dot.add_theme_stylebox_override("panel", _make_capsule_style(COLOR_TEXT_INVERSE))
+		player_avatar.add_child(dot)
+	player_avatar.position = Vector2((viewport_size.x - 80.0) / 2.0, stack_top + 203.7)
 	if local_ready:
 		_add_ready_badge(player_avatar, 20)
 	add_child(player_avatar)
 
-	var player_label := _make_absolute_label(local_player_name, 15, COLOR_TEXT_INVERSE_SUBTLE, 800)
-	player_label.position = Vector2(0, 558.0 + safe_top)
+	var player_label := _make_absolute_label(local_player_name, 14, COLOR_TEXT_INVERSE_SUBTLE, 700)
+	player_label.position = Vector2(0, stack_top + 291.7)
 	player_label.size = Vector2(viewport_size.x, 24)
 	add_child(player_label)
 
 	var ready_button := _make_wide_page_button("Ready", _start_battle_game, COLOR_PRIMARY_STRONG)
-	ready_button.size = Vector2(258, 56)
-	ready_button.position = Vector2((viewport_size.x - 258.0) / 2.0, _safe_bottom_y(viewport_size.y, ready_button.size.y, 32.0))
+	ready_button.size = Vector2(minf(viewport_size.x - 48.0, 256.0), 56)
+	ready_button.position = Vector2((viewport_size.x - ready_button.size.x) / 2.0, viewport_size.y - ready_button.size.y - maxf(32.0, _safe_area_bottom()))
 	ready_button.disabled = _is_realtime_room_active() and (local_player == null or opponent == null)
 	add_child(ready_button)
 
@@ -3050,14 +3098,14 @@ func _build_battle_game_layout() -> void:
 	menu_button.pressed.connect(_open_battle_menu)
 	add_child(menu_button)
 
-	var enemy_name := _make_absolute_label(_battle_opponent_name(), 15, COLOR_SECONDARY, 800)
+	var enemy_name := _make_absolute_label(_battle_opponent_name(), 14, COLOR_SECONDARY, 700)
 	enemy_name.name = "EnemyName"
 	enemy_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	enemy_name.position = Vector2(SAFE_AREA_EDGE_PADDING + safe_left, 8.0 + safe_top)
 	enemy_name.size = Vector2(160, 24)
 	add_child(enemy_name)
 
-	enemy_hp_label = _make_absolute_label("", 15, COLOR_SECONDARY, 800)
+	enemy_hp_label = _make_absolute_label("", 14, COLOR_SECONDARY, 700)
 	enemy_hp_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	enemy_hp_label.position = Vector2(viewport_size.x - 92.0 - safe_right, 8.0 + safe_top)
 	enemy_hp_label.size = Vector2(80, 24)
@@ -3098,20 +3146,20 @@ func _build_battle_game_layout() -> void:
 	add_child(stage_label)
 
 	battle_result_text = ""
-	result_label = _make_absolute_label("", 15, COLOR_SECONDARY, 800)
+	result_label = _make_absolute_label("", 14, COLOR_SECONDARY, 700)
 	result_label.position = Vector2(0, player_name_top - 28.0)
 	result_label.size = Vector2(viewport_size.x, 24)
 	add_child(result_label)
 
 	var player_name_text := "You" if tutorial_active else _battle_local_player_name()
-	var player_name := _make_absolute_label(player_name_text, 15, COLOR_PRIMARY_STRONG, 800)
+	var player_name := _make_absolute_label(player_name_text, 14, COLOR_PRIMARY_STRONG, 700)
 	player_name.name = "PlayerName"
 	player_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	player_name.position = Vector2(SAFE_AREA_EDGE_PADDING + safe_left, player_name_top)
 	player_name.size = Vector2(160, 24)
 	add_child(player_name)
 
-	player_hp_label = _make_absolute_label("", 15, COLOR_PRIMARY_STRONG, 800)
+	player_hp_label = _make_absolute_label("", 14, COLOR_PRIMARY_STRONG, 700)
 	player_hp_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	player_hp_label.position = Vector2(viewport_size.x - 92.0 - safe_right, player_name_top)
 	player_hp_label.size = Vector2(80, 24)
@@ -3172,7 +3220,7 @@ func _build_solo_layout() -> void:
 	add_child(background)
 
 	var pause_button := _make_pause_icon_button()
-	pause_button.position = Vector2(SAFE_AREA_EDGE_PADDING + safe_left, SAFE_AREA_EDGE_PADDING + safe_top)
+	pause_button.position = Vector2(maxf(12.0, safe_left), maxf(12.0, safe_top))
 	pause_button.pressed.connect(_pause_game)
 	add_child(pause_button)
 
@@ -3181,21 +3229,21 @@ func _build_solo_layout() -> void:
 	timer_bar.min_value = 0
 	timer_bar.max_value = SOLO_DURATION_SECONDS
 	timer_bar.value = solo_time_left
-	timer_bar.position = Vector2(96.0 + safe_left, 28.0 + safe_top)
+	timer_bar.position = Vector2(96.0 + safe_left, game_layout.top + 18.0)
 	timer_bar.size = Vector2(viewport_size.x - 192.0 - safe_left - safe_right, 8)
 	_apply_progress_theme(timer_bar, THEME_PROGRESS_PRIMARY)
 	add_child(timer_bar)
 
-	score_label = _make_absolute_label("", 16, COLOR_PRIMARY, 900)
+	score_label = _make_absolute_label("", 14, COLOR_PRIMARY, 700)
 	score_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	score_label.position = Vector2(viewport_size.x - 112.0 - safe_right, 16.0 + safe_top)
-	score_label.size = Vector2(70, 24)
+	score_label.position = Vector2(viewport_size.x - 96.0 - safe_right, game_layout.top + 10.0)
+	score_label.size = Vector2(72, 24)
 	add_child(score_label)
 
-	score_unit_label = _make_absolute_label("pt", 13, COLOR_INK_SOFT, 600)
+	score_unit_label = _make_absolute_label("pt", 11, COLOR_INK_SOFT, 600)
 	score_unit_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	score_unit_label.position = Vector2(viewport_size.x - 38.0 - safe_right, 16.0 + safe_top)
-	score_unit_label.size = Vector2(22, 24)
+	score_unit_label.position = Vector2(viewport_size.x - 22.0 - safe_right, game_layout.top + 10.0)
+	score_unit_label.size = Vector2(10, 24)
 	add_child(score_unit_label)
 
 	stage_label = _make_absolute_label("", 12, COLOR_INK_SOFT, 800)
@@ -3236,23 +3284,23 @@ func _build_pause_layout() -> void:
 	overlay.process_mode = Node.PROCESS_MODE_ALWAYS
 	add_child(overlay)
 
-	var panel := _make_dialog_panel(248)
+	var panel := _make_dialog_panel(230.8)
 	overlay.add_child(panel)
 
 	_add_dialog_header(panel, "Paused")
 
 	var actions := VBoxContainer.new()
-	actions.position = Vector2(12, 72)
-	actions.size = Vector2(DIALOG_WIDTH - 24.0, 160)
+	actions.position = Vector2(14, 68.8)
+	actions.size = Vector2(DIALOG_WIDTH - 28.0, 148)
 	actions.add_theme_constant_override("separation", 8)
 	panel.add_child(actions)
 
 	actions.add_child(_make_dialog_button("Resume", _resume_game, COLOR_PRIMARY_STRONG))
 	if previous_screen == Screen.SOLO:
-		actions.add_child(_make_dialog_button("Restart Run", _start_solo_game, COLOR_SECONDARY))
+		actions.add_child(_make_dialog_button("Retry", _start_solo_game, COLOR_SECONDARY))
 	else:
-		actions.add_child(_make_dialog_button("Restart Lesson" if tutorial_active else "Restart Match", _restart_local_battle, COLOR_SECONDARY))
-	actions.add_child(_make_dialog_button("Main Menu", _start_home, COLOR_SECONDARY))
+		actions.add_child(_make_dialog_button("Retry", _restart_local_battle, COLOR_SECONDARY))
+	actions.add_child(_make_dialog_button("Top", _start_home, COLOR_SECONDARY))
 
 func _restart_local_battle() -> void:
 	if tutorial_active:
@@ -3296,45 +3344,46 @@ func _build_game_over_layout() -> void:
 	overlay.name = "GameOverOverlay"
 	add_child(overlay)
 
-	var panel := _make_dialog_panel(408)
+	var exp_gained := _solo_exp_gained(int(solo_state["score"]))
+	var has_best := did_set_new_best or best_score > 0
+	var stats_top := 149.1 + (15.2 if has_best else 0.0)
+	var rows := 3 if exp_gained > 0 else 2
+	var stats_height := rows * 38.4 + (rows - 1) * 8.0
+	var actions_top := stats_top + stats_height + 20.0
+	var panel := _make_dialog_panel(actions_top + 58.0)
 	overlay.add_child(panel)
-
 	_add_dialog_header(panel, "Time's Up")
 
-	var hero_label := _make_absolute_label("SCORE", 12, COLOR_INK_SOFT, 700)
-	hero_label.position = Vector2(0, 72)
-	hero_label.size = Vector2(DIALOG_WIDTH, 20)
+	var hero_label := _make_absolute_label("SCORE", 11, COLOR_INK_SOFT, 600, 1)
+	hero_label.position = Vector2(0, 68.8)
+	hero_label.size = Vector2(DIALOG_WIDTH, 14.7)
 	panel.add_child(hero_label)
-
-	var score_value := _make_absolute_label(str(int(solo_state["score"])), 48, COLOR_PRIMARY, 900)
-	score_value.position = Vector2(0, 88)
-	score_value.size = Vector2(DIALOG_WIDTH, 60)
+	var score_value := _make_absolute_label(str(int(solo_state["score"])), 38, COLOR_PRIMARY, 700)
+	score_value.position = Vector2(0, 85.1)
+	score_value.size = Vector2(DIALOG_WIDTH, 38.4)
 	panel.add_child(score_value)
-
-	var best_label := _make_best_score_badge()
-	best_label.position = Vector2((DIALOG_WIDTH - best_label.size.x) / 2.0, 148)
-	panel.add_child(best_label)
+	if has_best:
+		var best_label := _make_best_score_badge()
+		best_label.position = Vector2((DIALOG_WIDTH - best_label.size.x) / 2.0, 131.5)
+		panel.add_child(best_label)
 
 	var stats := VBoxContainer.new()
-	stats.position = Vector2(12, 188)
-	stats.size = Vector2(DIALOG_WIDTH - 24.0, 132)
+	stats.position = Vector2(14, stats_top)
+	stats.size = Vector2(DIALOG_WIDTH - 28.0, stats_height)
 	stats.add_theme_constant_override("separation", 8)
 	panel.add_child(stats)
-
 	_add_dialog_stat_row(stats, "Atomized", int(solo_state["clearedStages"]))
 	_add_dialog_stat_row(stats, "Max Combo", int(solo_state["maxCombo"]))
-	var exp_gained := _solo_exp_gained(int(solo_state["score"]))
 	if exp_gained > 0:
 		_add_dialog_stat_text_row(stats, "EXP", "+%d" % exp_gained)
 
 	var actions := HBoxContainer.new()
-	actions.position = Vector2(12, 344)
-	actions.size = Vector2(DIALOG_WIDTH - 24.0, DIALOG_BUTTON_HEIGHT)
+	actions.position = Vector2(14, actions_top)
+	actions.size = Vector2(DIALOG_WIDTH - 28.0, DIALOG_BUTTON_HEIGHT)
 	actions.add_theme_constant_override("separation", 8)
 	panel.add_child(actions)
-
-	actions.add_child(_make_dialog_action_button("Main Menu", _start_home, COLOR_SECONDARY))
-	actions.add_child(_make_dialog_action_button("Play Again", _start_solo_game, COLOR_PRIMARY_STRONG))
+	actions.add_child(_make_dialog_action_button("Top", _start_home, COLOR_SECONDARY))
+	actions.add_child(_make_dialog_action_button("Retry", _start_solo_game, COLOR_PRIMARY_STRONG))
 
 func _render_solo() -> void:
 	if screen != Screen.SOLO:
@@ -3392,9 +3441,7 @@ func _render_battle() -> void:
 	stage_label.text = ""
 	target_blob_panel.sync_value(int(player["stageIndex"]), int(player["stage"]["remainingValue"]))
 	_render_queue_panel(battle_resolving_queue if battle_resolving_player_id == local_player_id and not battle_resolving_queue.is_empty() else battle_prime_queue)
-	result_label.text = battle_result_text
-	result_label.visible = battle_result_text != ""
-	_set_label_color(result_label, _feedback_text_color(battle_result_text, COLOR_SECONDARY))
+	_render_battle_result()
 
 	var is_finished: bool = battle_snapshot["status"] == "finished"
 	var is_busy := not battle_resolving_queue.is_empty()
@@ -3433,6 +3480,14 @@ func _render_battle() -> void:
 		_build_battle_over_overlay()
 
 	_render_tutorial_overlay()
+
+func _render_battle_result() -> void:
+	result_label.text = battle_result_text
+	result_label.visible = battle_result_text != ""
+	result_label.modulate.a = 1.0
+	if battle_result_seconds_left > 0.0 and not _prefers_reduced_motion():
+		result_label.modulate.a = minf(1.0, battle_result_seconds_left / BATTLE_MISS_FADE_SECONDS)
+	_set_label_color(result_label, _feedback_text_color(battle_result_text, COLOR_SECONDARY))
 
 func _is_battle_result_ready_to_render(player: Dictionary, bot: Dictionary) -> bool:
 	if battle_display_player_hp != int(player["hp"]) or battle_display_bot_hp != int(bot["hp"]):
@@ -3508,6 +3563,7 @@ func _submit_battle_queue() -> void:
 
 	if battle_prime_queue.is_empty():
 		if can_submit_solved_stage:
+			battle_result_text = ""
 			battle_snapshot = BattleRoom.clear_solved_battle_stage(battle_snapshot, local_player_id)
 			_broadcast_realtime_clear_solved_stage(local_player_id)
 			_play_battle_event_feedback(battle_snapshot.get("lastEvent", {}))
@@ -3765,7 +3821,9 @@ func _build_battle_over_overlay() -> void:
 	overlay.name = "BattleOverOverlay"
 	add_child(overlay)
 
-	var panel := _make_dialog_panel(336)
+	var dialog_width := minf(get_viewport_rect().size.x - 24.0, 320.0)
+	var dialog_height := 336.0 if exp_gained > 0 else 289.6
+	var panel := _make_dialog_panel(dialog_height, dialog_width)
 	_apply_panel_theme(panel, THEME_PANEL_DIALOG_VICTORY if did_win else THEME_PANEL_DIALOG_DEFEAT)
 	if did_win:
 		_spawn_victory_confetti(overlay, panel.position + (panel.size / 2.0))
@@ -3774,30 +3832,30 @@ func _build_battle_over_overlay() -> void:
 	_add_dialog_header(panel, "Victory" if did_win else "Defeat", COLOR_GOLD if did_win else COLOR_INK_SOFT)
 
 	var columns := HBoxContainer.new()
-	columns.position = Vector2(12, 76)
-	columns.size = Vector2(DIALOG_WIDTH - 24.0, 164)
-	columns.add_theme_constant_override("separation", 8)
+	columns.position = Vector2(2, 68.8)
+	columns.size = Vector2(dialog_width - 4.0, dialog_height - 142.8)
+	columns.add_theme_constant_override("separation", 0)
 	panel.add_child(columns)
 
 	_add_battle_result_column(columns, player, did_win, true, exp_gained)
 
 	var divider := ColorRect.new()
 	divider.color = COLOR_BORDER_SOFT
-	divider.custom_minimum_size = Vector2(1, 156)
+	divider.custom_minimum_size = Vector2(1, dialog_height - 142.8)
 	columns.add_child(divider)
 
 	_add_battle_result_column(columns, bot, not did_win, false, 0)
 
 	var actions := HBoxContainer.new()
-	actions.position = Vector2(12, 272)
-	actions.size = Vector2(DIALOG_WIDTH - 24.0, DIALOG_BUTTON_HEIGHT)
+	actions.position = Vector2(14, dialog_height - 58.0)
+	actions.size = Vector2(dialog_width - 28.0, DIALOG_BUTTON_HEIGHT)
 	actions.add_theme_constant_override("separation", 8)
 	panel.add_child(actions)
 
 	var next_battle_label := "Find Battle" if _is_realtime_room_active() else "Rematch"
 	var next_battle_callback := _start_battle_picker if _is_realtime_room_active() else _start_battle_ready
 	actions.add_child(_make_dialog_action_button(next_battle_label, next_battle_callback, COLOR_SECONDARY))
-	actions.add_child(_make_dialog_action_button("Main Menu", _start_home, COLOR_PRIMARY_STRONG))
+	actions.add_child(_make_dialog_action_button("Top", _start_home, COLOR_PRIMARY_STRONG))
 
 func _battle_exp_gained(player, opponent, did_win: bool) -> int:
 	if did_win:
@@ -3823,6 +3881,9 @@ func _track_tutorial_event() -> void:
 
 	if source_player_id == BATTLE_BOT_ID and (event_type == "attack" or event_type == "finish"):
 		tutorial_enemy_attack_seen = true
+
+	if source_player_id == BATTLE_PLAYER_ID and int(event.get("regen", 0)) > 0:
+		tutorial_healed_hp = int(event["regen"])
 
 	if source_player_id == BATTLE_PLAYER_ID and event_type == "self-hit":
 		tutorial_self_penalty_seen = true
@@ -4048,21 +4109,25 @@ func _pick_tutorial_bot_prime(bot: Dictionary) -> int:
 	var factors: Array = bot["stage"]["remainingFactors"]
 	return int(factors[randi_range(0, factors.size() - 1)]) if not factors.is_empty() else 0
 
+func _tutorial_lesson_body(lesson: Dictionary) -> String:
+	if tutorial_step == TutorialStep.PERFECT_SOLVE_RESULT and tutorial_healed_hp > 0:
+		return "You recovered %s HP! The gold effect shows healing. Perfect clears also deal bonus combo damage." % tutorial_healed_hp
+	return str(lesson.get("body", ""))
+
 func _tutorial_coach_metrics() -> Dictionary:
 	var lesson: Dictionary = TUTORIAL_LESSONS.get(tutorial_step, {})
 	var viewport_size := get_viewport_rect().size
 	var width := minf(viewport_size.x - _safe_area_left() - _safe_area_right() - 16.0, 448.0)
-	var body_height := _make_ui_font(600).get_multiline_string_size(str(lesson.get("body", "")), HORIZONTAL_ALIGNMENT_LEFT, width - 24.0, 14).y
-	var text_height := 34.0 + maxf(20.0, body_height)
-	var actions_height := 112.0 if tutorial_step == TutorialStep.INTRO else (56.0 if str(lesson.get("action", "")) != "" else 0.0)
-	return {"width": width, "body_height": body_height, "text_height": text_height, "height": text_height + 12.0 + actions_height}
+	var body_height := _make_ui_font(600).get_multiline_string_size(_tutorial_lesson_body(lesson), HORIZONTAL_ALIGNMENT_LEFT, width - 16.0, 11).y
+	var text_height := 28.7 + maxf(15.0, body_height)
+	var actions_height := 104.0 if tutorial_step == TutorialStep.INTRO else (52.0 if str(lesson.get("action", "")) != "" else 0.0)
+	return {"width": width, "body_height": body_height, "text_height": text_height, "height": text_height + 8.0 + actions_height}
 
 func _measure_game_layout() -> Dictionary:
-	var coach_height := 0.0
-	if tutorial_active and tutorial_step != TutorialStep.DONE and not (tutorial_step == TutorialStep.ENEMY_TURN and tutorial_enemy_turn_acknowledged):
-		if TUTORIAL_LESSONS.get(tutorial_step, {}).get("position", "bottom") == "top":
-			coach_height = float(_tutorial_coach_metrics().height) + 16.0
-	return GameLayout.measure(get_viewport_rect().size, _safe_area_insets(), screen == Screen.BATTLE_GAME, coach_height)
+	return GameLayout.measure(get_viewport_rect().size, _safe_area_insets(), screen == Screen.BATTLE_GAME)
+
+func _tutorial_focuses_player() -> bool:
+	return tutorial_active and not tutorial_enemy_attack_seen and tutorial_step != TutorialStep.ENEMY_TURN and tutorial_step != TutorialStep.DONE
 
 func _render_tutorial_overlay() -> void:
 	var overlay_key := "%s:%s:%s:%s" % [tutorial_active, tutorial_step, battle_prime_queue, tutorial_enemy_turn_acknowledged]
@@ -4070,6 +4135,9 @@ func _render_tutorial_overlay() -> void:
 		return
 	tutorial_overlay_key = overlay_key
 	_reflow_game_layout(false)
+	var controls := get_node_or_null("PrimeControls") as Control
+	if controls != null:
+		controls.visible = not (tutorial_active and _tutorial_is_interaction_blocked())
 	if has_node("TutorialCoachOverlay"):
 		var old_overlay := get_node("TutorialCoachOverlay")
 		remove_child(old_overlay)
@@ -4106,33 +4174,36 @@ func _render_tutorial_overlay() -> void:
 		(viewport_size.x - card_width) / 2.0,
 		game_layout.enemy_hp.end.y + 8.0 if is_top_lesson else viewport_size.y - maxf(8.0, _safe_area_bottom()) - card_height
 	)
+	card.name = "TutorialCard"
 	card.mouse_filter = Control.MOUSE_FILTER_STOP
 	_apply_panel_theme(card, THEME_PANEL_TUTORIAL)
 	overlay.add_child(card)
 
-	var title := _make_absolute_label(str(lesson["title"]).to_upper(), 13, COLOR_PRIMARY, 800)
+	var title := _make_absolute_label(str(lesson["title"]).to_upper(), 11, COLOR_PRIMARY, 800)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	title.position = Vector2(12, 8)
-	title.size = Vector2(card_width - 24.0, 24)
+	title.position = Vector2(8, 8)
+	title.size = Vector2(card_width - 16.0, 12.7)
 	card.add_child(title)
 
-	var body := _make_absolute_label(str(lesson["body"]), 14, COLOR_INK_SOFT, 600)
+	var body := _make_absolute_label(_tutorial_lesson_body(lesson), 11, COLOR_INK_SOFT, 600)
 	body.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	body.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	body.position = Vector2(12, 34)
-	body.size = Vector2(card_width - 24.0, maxf(20.0, body_height))
+	body.position = Vector2(8, 28.7)
+	body.size = Vector2(card_width - 16.0, maxf(15.0, body_height))
 	card.add_child(body)
 
 	if has_primary_action or has_skip_action:
 		var actions := VBoxContainer.new()
-		actions.position = Vector2(40, text_height + 8.0)
-		actions.size = Vector2(card_width - 80.0, card_height - text_height - 16.0)
+		var action_width := minf(card_width - 16.0, viewport_size.x * 0.75)
+		actions.position = Vector2((card_width - action_width) / 2.0, text_height + 8.0)
+		actions.size = Vector2(action_width, card_height - text_height - 16.0)
 		actions.add_theme_constant_override("separation", 8)
 		card.add_child(actions)
 
 		if has_primary_action:
 			var action_button := _make_dialog_action_button(str(lesson["action"]), _tutorial_handle_action, COLOR_PRIMARY_STRONG)
+			action_button.action_mode = BaseButton.ACTION_MODE_BUTTON_PRESS
 			actions.add_child(action_button)
 
 		if has_skip_action:
@@ -4140,7 +4211,10 @@ func _render_tutorial_overlay() -> void:
 			actions.add_child(skip_button)
 
 	_add_tutorial_highlight(overlay)
+	overlay.move_child(card, -1)
 	_animate_tutorial_card(card)
+	if tutorial_step == TutorialStep.PERFECT_SOLVE_RESULT and tutorial_healed_hp > 0:
+		_play_hp_regen(player_hp_bar, tutorial_healed_hp, _battle_source_anchor(BATTLE_PLAYER_ID))
 
 func _queue_prime(prime: int) -> void:
 	if screen != Screen.SOLO or not resolving_queue.is_empty():
@@ -4181,6 +4255,7 @@ func _submit_queue() -> void:
 		return
 
 	resolving_queue = prime_queue.duplicate()
+	submitted_prime_queue = prime_queue.duplicate()
 	submitted_queue_length = resolving_queue.size()
 	prime_queue.clear()
 	resolve_elapsed = 0.0
@@ -4248,7 +4323,7 @@ func _resolve_next_queued_prime() -> void:
 func _apply_time_compensation(state_before_clear: Dictionary, queue_length: int) -> void:
 	var stage: Dictionary = state_before_clear["currentStage"]
 	var factors: Array = stage["factors"]
-	var used_primes := factors.slice(max(0, factors.size() - queue_length), factors.size())
+	var used_primes := submitted_prime_queue
 	var is_perfect := queue_length == factors.size()
 	var compensation := 0.0
 
@@ -4332,7 +4407,7 @@ func _save_experience(experience: int) -> int:
 
 func _make_app_theme() -> Theme:
 	var app_theme := Theme.new()
-	var button_font := _make_ui_font(800)
+	var button_font := _make_ui_font(700)
 	var label_font := _make_ui_font(700)
 
 	app_theme.set_font("font", "Button", button_font)
@@ -4347,16 +4422,16 @@ func _make_app_theme() -> Theme:
 	_add_button_theme(app_theme, THEME_BUTTON_SURFACE, COLOR_SURFACE, COLOR_PRIMARY, 16, COLOR_KEYPAD_BUTTON_BG, 16, RADIUS_BUTTON, COLOR_BORDER_SOFT)
 	_add_button_theme(app_theme, THEME_BUTTON_KEYPAD, COLOR_KEYPAD_BUTTON_BG, COLOR_KEYPAD_BUTTON_TEXT, 32, COLOR_KEYPAD_BUTTON_ACTIVE_BG, 0, RADIUS_PILL, Color.TRANSPARENT, 0)
 	_add_button_theme(app_theme, THEME_BUTTON_KEY_ACTION, COLOR_PRIMARY_STRONG, COLOR_TEXT_INVERSE, 28, COLOR_PRIMARY, 0, RADIUS_PILL, Color.TRANSPARENT, 0)
-	_add_button_theme(app_theme, THEME_BUTTON_ICON_SURFACE, COLOR_SURFACE, COLOR_PRIMARY, 16, COLOR_KEYPAD_BUTTON_BG, 0, RADIUS_PILL, COLOR_BORDER_SOFT)
-	_add_button_theme(app_theme, THEME_BUTTON_SMALL_PRIMARY, COLOR_PRIMARY_STRONG, COLOR_TEXT_INVERSE, 13)
-	_add_button_theme(app_theme, THEME_BUTTON_SMALL_SURFACE, COLOR_SURFACE, COLOR_PRIMARY, 14, COLOR_KEYPAD_BUTTON_BG, 16, RADIUS_BUTTON, COLOR_BORDER_SOFT)
-	_add_button_theme(app_theme, THEME_BUTTON_PAGE_PRIMARY, COLOR_PRIMARY_STRONG, COLOR_TEXT_INVERSE, 16, COLOR_PRIMARY_STRONG, 16, RADIUS_PILL)
-	_add_button_theme(app_theme, THEME_BUTTON_PAGE_SECONDARY, COLOR_SECONDARY, COLOR_TEXT_INVERSE, 16, COLOR_SECONDARY, 16, RADIUS_PILL)
-	_add_button_theme(app_theme, THEME_BUTTON_PAGE_DANGER, COLOR_DANGER, COLOR_TEXT_INVERSE, 16, COLOR_DANGER, 16, RADIUS_PILL)
+	_add_button_theme(app_theme, THEME_BUTTON_ICON_SURFACE, COLOR_SURFACE, COLOR_PRIMARY, 16, COLOR_KEYPAD_BUTTON_BG, 0, RADIUS_PILL, Color.TRANSPARENT, 0)
+	_add_button_theme(app_theme, THEME_BUTTON_SMALL_PRIMARY, COLOR_PRIMARY_STRONG, COLOR_TEXT_INVERSE, 11, COLOR_PRIMARY_STRONG, 0, RADIUS_PILL, Color.TRANSPARENT, 0)
+	_add_button_theme(app_theme, THEME_BUTTON_SMALL_SURFACE, COLOR_BUTTON_DISABLED, COLOR_KEYPAD_BUTTON_TEXT, 11, COLOR_BUTTON_DISABLED, 0, RADIUS_PILL, Color.TRANSPARENT, 0)
+	_add_button_theme(app_theme, THEME_BUTTON_PAGE_PRIMARY, COLOR_PRIMARY_STRONG, COLOR_TEXT_INVERSE, 16, COLOR_PRIMARY_STRONG, 12, RADIUS_PILL, COLOR_BORDER_CONTRAST, 1)
+	_add_button_theme(app_theme, THEME_BUTTON_PAGE_SECONDARY, COLOR_SECONDARY, COLOR_TEXT_INVERSE, 16, COLOR_SECONDARY, 12, RADIUS_PILL, COLOR_BORDER_CONTRAST, 1)
+	_add_button_theme(app_theme, THEME_BUTTON_PAGE_DANGER, COLOR_DANGER, COLOR_TEXT_INVERSE, 16, COLOR_DANGER, 12, RADIUS_PILL, COLOR_BORDER_CONTRAST, 1)
 	_add_button_theme(app_theme, THEME_BUTTON_BLOB_PRIMARY, COLOR_PRIMARY_STRONG, COLOR_TEXT_INVERSE, 16, COLOR_PRIMARY_STRONG, 16, RADIUS_PILL, COLOR_BORDER_INVERSE_SOFT)
 	_add_button_theme(app_theme, THEME_BUTTON_BLOB_SECONDARY, COLOR_SECONDARY, COLOR_TEXT_INVERSE, 16, COLOR_SECONDARY, 16, RADIUS_PILL, COLOR_BORDER_INVERSE_SOFT)
 	_add_transparent_button_theme(app_theme)
-	_add_panel_theme(app_theme, THEME_PANEL_HERO_ORB, "Panel", _make_pixel_box_style(COLOR_PRIMARY, COLOR_OUTLINE_STRONG, PIXEL_BORDER, RADIUS_PILL, true))
+	_add_panel_theme(app_theme, THEME_PANEL_HERO_ORB, "Panel", _make_pixel_box_style(COLOR_PRIMARY, COLOR_OUTLINE_STRONG, PIXEL_BORDER, RADIUS_PILL))
 	_add_panel_theme(app_theme, THEME_PANEL_BURST, "Panel", _make_pixel_box_style(COLOR_PRIMARY, Color.TRANSPARENT, 0, RADIUS_PILL, true))
 	_add_panel_theme(app_theme, THEME_PANEL_PAGE_HEADER, "Panel", _make_capsule_style(COLOR_PRIMARY))
 	_add_panel_theme(app_theme, THEME_PANEL_LOGO_DOT, "Panel", _make_pixel_box_style(COLOR_TEXT_INVERSE, Color.TRANSPARENT, 0, RADIUS_PILL))
@@ -4369,11 +4444,11 @@ func _make_app_theme() -> Theme:
 	_add_panel_theme(app_theme, THEME_PANEL_TARGET_DANGER, "Panel", _make_pixel_box_style(COLOR_DANGER, COLOR_BORDER_INVERSE_SOFT, PIXEL_BORDER, RADIUS_PILL, true))
 	_add_panel_theme(app_theme, THEME_PANEL_TARGET_GOLD, "Panel", _make_pixel_box_style(COLOR_GOLD, COLOR_BORDER_INVERSE_SOFT, PIXEL_BORDER, RADIUS_PILL, true))
 	_add_panel_theme(app_theme, THEME_PANEL_TUTORIAL, "Panel", _make_tutorial_panel_style())
-	_add_panel_theme(app_theme, THEME_PANEL_AVATAR_PRIMARY, "Panel", _make_pixel_box_style(COLOR_PRIMARY_STRONG, COLOR_BORDER_INVERSE_SOFT, PIXEL_BORDER, RADIUS_PILL, true))
-	_add_panel_theme(app_theme, THEME_PANEL_AVATAR_SECONDARY, "Panel", _make_pixel_box_style(COLOR_SECONDARY, COLOR_BORDER_INVERSE_SOFT, PIXEL_BORDER, RADIUS_PILL, true))
+	_add_panel_theme(app_theme, THEME_PANEL_AVATAR_PRIMARY, "Panel", _make_pixel_box_style(COLOR_PRIMARY_STRONG, COLOR_BORDER_INVERSE_SOFT, PIXEL_BORDER, RADIUS_PILL))
+	_add_panel_theme(app_theme, THEME_PANEL_AVATAR_SECONDARY, "Panel", _make_pixel_box_style(COLOR_SECONDARY, COLOR_BORDER_INVERSE_SOFT, PIXEL_BORDER, RADIUS_PILL))
 	_add_panel_theme(app_theme, THEME_PANEL_BADGE_GOLD, "Panel", _make_button_style(COLOR_GOLD))
 	_add_panel_theme(app_theme, THEME_PANEL_BADGE_SURFACE, "Panel", _make_button_style(COLOR_SURFACE))
-	_add_panel_theme(app_theme, THEME_PANEL_READY_BADGE, "Panel", _make_pixel_box_style(COLOR_SURFACE, COLOR_PRIMARY, PIXEL_BORDER, RADIUS_PILL, true))
+	_add_panel_theme(app_theme, THEME_PANEL_READY_BADGE, "Panel", _make_pixel_box_style(COLOR_SURFACE, COLOR_PRIMARY, PIXEL_BORDER, RADIUS_PILL))
 	_add_panel_theme(app_theme, THEME_PANEL_PARTICLE_PRIMARY, "Panel", _make_pixel_box_style(COLOR_PRIMARY_STRONG, Color.TRANSPARENT, 0, RADIUS_PILL))
 	_add_panel_theme(app_theme, THEME_PANEL_QUEUE_CHIP, "Panel", _make_pixel_circle_style(COLOR_PRIMARY_STRONG, Color.TRANSPARENT, 0))
 	_add_panel_theme(app_theme, THEME_PANEL_PARTICLE_SECONDARY, "Panel", _make_pixel_box_style(COLOR_SECONDARY, Color.TRANSPARENT, 0, RADIUS_PILL))
@@ -4389,8 +4464,6 @@ func _make_app_theme() -> Theme:
 	_add_panel_theme(app_theme, THEME_PANEL_FAULT_GLOW, "Panel", _make_capsule_style(_alpha_color(COLOR_DANGER, 0.24)))
 	_add_panel_theme(app_theme, THEME_PANEL_ATTACK_BALL_PRIMARY, "Panel", _make_pixel_box_style(COLOR_PRIMARY_STRONG, COLOR_BORDER_INVERSE_SOFT, PIXEL_BORDER, RADIUS_PILL))
 	_add_panel_theme(app_theme, THEME_PANEL_ATTACK_BALL_SECONDARY, "Panel", _make_pixel_box_style(COLOR_SECONDARY, COLOR_BORDER_INVERSE_SOFT, PIXEL_BORDER, RADIUS_PILL))
-	_add_panel_theme(app_theme, THEME_PANEL_ATTACK_GLOW_PRIMARY, "Panel", _make_capsule_style(_alpha_color(COLOR_PRIMARY_STRONG, 0.24)))
-	_add_panel_theme(app_theme, THEME_PANEL_ATTACK_GLOW_SECONDARY, "Panel", _make_capsule_style(_alpha_color(COLOR_SECONDARY, 0.24)))
 	_add_progress_theme(app_theme, THEME_PROGRESS_PRIMARY, COLOR_PRIMARY_STRONG)
 	_add_progress_theme(app_theme, THEME_PROGRESS_SECONDARY, COLOR_SECONDARY)
 	_add_progress_theme(app_theme, THEME_PROGRESS_DANGER, COLOR_DANGER)
@@ -4413,7 +4486,7 @@ func _add_button_theme(
 	var resolved_hover_color := hover_color if hover_color != Color.TRANSPARENT else normal_color
 	var pressed_color := normal_color.lerp(COLOR_INK, 0.08)
 	app_theme.set_type_variation(variation, "Button")
-	app_theme.set_font("font", variation, _make_ui_font(800))
+	app_theme.set_font("font", variation, _make_ui_font(700 if variation != THEME_BUTTON_BLOB_PRIMARY and variation != THEME_BUTTON_BLOB_SECONDARY else 800))
 	app_theme.set_font_size("font_size", variation, font_size)
 	app_theme.set_stylebox("normal", variation, _make_button_style(normal_color, content_margin, radius, border_color, border_width))
 	app_theme.set_stylebox("hover", variation, _make_button_style(resolved_hover_color, content_margin, radius, border_color, border_width))
@@ -4423,6 +4496,14 @@ func _add_button_theme(
 	var disabled_color := Color(normal_color.r, normal_color.g, normal_color.b, normal_color.a * (0.38 if variation == THEME_BUTTON_KEYPAD else 0.56))
 	app_theme.set_stylebox("disabled", variation, _make_button_style(disabled_color, content_margin, radius, Color.TRANSPARENT, 0))
 	_set_button_theme_colors(app_theme, variation, text_color)
+	if variation in [THEME_BUTTON_SMALL_PRIMARY, THEME_BUTTON_SMALL_SURFACE]:
+		for state in ["normal", "hover", "pressed", "hover_pressed", "disabled"]:
+			var style := app_theme.get_stylebox(state, variation) as StyleBoxFlat
+			style.expand_margin_top = -6.0
+			style.expand_margin_bottom = -6.0
+		if variation == THEME_BUTTON_SMALL_SURFACE:
+			app_theme.set_stylebox("disabled", variation, app_theme.get_stylebox("normal", variation))
+			app_theme.set_color("font_disabled_color", variation, text_color)
 	if variation == THEME_BUTTON_KEY_ACTION:
 		app_theme.set_stylebox("disabled", variation, app_theme.get_stylebox("normal", variation))
 		app_theme.set_color("icon_disabled_color", variation, text_color)
@@ -4496,7 +4577,7 @@ func _progress_theme_for_color(color: Color) -> String:
 	return THEME_PROGRESS_SECONDARY if color == COLOR_SECONDARY else THEME_PROGRESS_PRIMARY
 
 func _make_action_button(text: String, callback: Callable, color: Color) -> Button:
-	var button := Button.new()
+	var button := TouchButton.new()
 	button.text = text
 	button.custom_minimum_size = Vector2(0, 56)
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -4532,10 +4613,11 @@ func _make_home_title() -> HBoxContainer:
 	return title_row
 
 func _make_home_blob_button(text: String, callback: Callable, color: Color, icon_kind: String) -> Button:
-	var button := Button.new()
+	var button := TouchButton.new()
 	button.tooltip_text = text
-	button.custom_minimum_size = Vector2(HOME_BLOB_SIZE, HOME_BLOB_SIZE)
-	button.size = Vector2(HOME_BLOB_SIZE, HOME_BLOB_SIZE)
+	var blob_size := minf(get_viewport_rect().size.x * 0.38, HOME_BLOB_SIZE)
+	button.custom_minimum_size = Vector2(blob_size, blob_size)
+	button.size = Vector2(blob_size, blob_size)
 	button.text = ""
 	_apply_button_theme(button, _button_theme_for_color(color, THEME_BUTTON_BLOB_PRIMARY, THEME_BUTTON_BLOB_SECONDARY))
 	_wire_button_feedback(button, "start")
@@ -4549,7 +4631,8 @@ func _make_home_blob_button(text: String, callback: Callable, color: Color, icon
 	button.add_child(content_stack)
 
 	var icon_slot := Control.new()
-	icon_slot.custom_minimum_size = Vector2(32, 28)
+	icon_slot.custom_minimum_size = Vector2(24, 24)
+	icon_slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	content_stack.add_child(icon_slot)
 	var content_color := _get_button_text_color(color)
 	if icon_kind == "timer":
@@ -4561,9 +4644,9 @@ func _make_home_blob_button(text: String, callback: Callable, color: Color, icon
 	else:
 		_add_help_icon(icon_slot, content_color)
 
-	var label := _make_absolute_label(text.to_upper(), 16, content_color, 900)
+	var label := _make_absolute_label(text.to_upper(), 16, content_color, 800)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.custom_minimum_size = Vector2(HOME_BLOB_SIZE, 24)
+	label.custom_minimum_size = Vector2(blob_size, 18)
 	content_stack.add_child(label)
 
 	return button
@@ -4589,7 +4672,7 @@ func _start_home_blob_idle(button: Button, starts_raised: bool) -> void:
 		tween.tween_property(button, "position:y", base_y, 3.3)
 
 func _make_home_menu_button() -> Button:
-	var button := Button.new()
+	var button := TouchButton.new()
 	button.tooltip_text = "Close menu" if home_menu_open else "Menu"
 	button.size = Vector2(HOME_MENU_BUTTON_SIZE, HOME_MENU_BUTTON_SIZE)
 	button.custom_minimum_size = Vector2(HOME_MENU_BUTTON_SIZE, HOME_MENU_BUTTON_SIZE)
@@ -4603,7 +4686,7 @@ func _make_home_menu_button() -> Button:
 	return button
 
 func _make_home_menu_item(icon_kind: String, tooltip: String, callback: Callable) -> Button:
-	var button := Button.new()
+	var button := TouchButton.new()
 	button.tooltip_text = tooltip
 	button.text = ""
 	button.custom_minimum_size = Vector2(48, 48)
@@ -4618,7 +4701,7 @@ func _prefers_reduced_motion() -> bool:
 	return bool(ProjectSettings.get_setting(REDUCE_MOTION_SETTING, false))
 
 func _make_header_icon_button(text: String, callback: Callable) -> Button:
-	var button := Button.new()
+	var button := TouchButton.new()
 	button.tooltip_text = "Back" if text == "←" else text
 	button.text = "" if text == "←" else text
 	button.size = Vector2(44, 44)
@@ -4631,11 +4714,11 @@ func _make_header_icon_button(text: String, callback: Callable) -> Button:
 	return button
 
 func _make_page_back_button(callback: Callable) -> Button:
-	var button := Button.new()
+	var button := TouchButton.new()
 	button.tooltip_text = "Back"
 	button.text = ""
-	button.size = Vector2(44, 44)
-	button.custom_minimum_size = Vector2(44, 44)
+	button.size = Vector2(46.4, 46.4)
+	button.custom_minimum_size = Vector2(46.4, 46.4)
 	_apply_button_theme(button, THEME_BUTTON_ICON_SURFACE)
 	_set_or_add_texture_icon(button, "back", 24, COLOR_PRIMARY)
 	_wire_button_feedback(button, "back")
@@ -4643,7 +4726,7 @@ func _make_page_back_button(callback: Callable) -> Button:
 	return button
 
 func _make_pause_icon_button() -> Button:
-	var button := Button.new()
+	var button := TouchButton.new()
 	button.tooltip_text = "Pause"
 	button.size = Vector2(44, 44)
 	button.custom_minimum_size = Vector2(44, 44)
@@ -4703,6 +4786,7 @@ func _add_ready_badge(parent: Control, size: float) -> void:
 func _make_hp_bar(color: Color) -> ProgressBar:
 	var bar := ProgressBar.new()
 	bar.show_percentage = false
+	bar.clip_contents = true
 	bar.min_value = 0
 	bar.max_value = BattleRoom.STARTING_HP
 	bar.value = BattleRoom.STARTING_HP
@@ -4710,7 +4794,7 @@ func _make_hp_bar(color: Color) -> ProgressBar:
 	return bar
 
 func _make_wide_page_button(text: String, callback: Callable, color: Color) -> Button:
-	var button := Button.new()
+	var button := TouchButton.new()
 	button.text = text
 	button.custom_minimum_size = Vector2(0, 56)
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -4899,7 +4983,7 @@ func _animate_tutorial_card(card: Panel) -> void:
 	tween.tween_property(card, "modulate:a", 1.0, 0.18)
 
 func _make_prime_key_button(text: String) -> Button:
-	var button := Button.new()
+	var button := TouchButton.new()
 	button.tooltip_text = "Prime %s" % text
 	button.action_mode = BaseButton.ACTION_MODE_BUTTON_PRESS
 	button.accessibility_name = "Prime %s" % text
@@ -4916,7 +5000,7 @@ func _make_icon_text_button(
 	_font_size: int,
 	sound_kind: String = "tap"
 ) -> Button:
-	var button := Button.new()
+	var button := TouchButton.new()
 	button.text = text
 	button.custom_minimum_size = Vector2(SOLO_KEY_SIZE, SOLO_KEY_SIZE)
 	_apply_button_theme(button, THEME_BUTTON_KEY_ACTION)
@@ -4932,6 +5016,7 @@ func _make_modal_overlay() -> Control:
 	scrim.color = Color(0.063, 0.106, 0.180, 0.26 if screen == Screen.PAUSED else 0.2)
 	var material := ShaderMaterial.new()
 	material.shader = ModalScrim
+	material.set_shader_parameter("blur_lod", 3.5 + log(maxf(1.0, get_viewport().get_final_transform().get_scale().x)) / log(2.0))
 	material.set_shader_parameter("tint_opacity", 0.26 if screen == Screen.PAUSED else 0.2)
 	scrim.material = material
 	scrim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -4939,12 +5024,12 @@ func _make_modal_overlay() -> Control:
 
 	return overlay
 
-func _make_dialog_panel(height: float) -> Panel:
+func _make_dialog_panel(height: float, width: float = DIALOG_WIDTH) -> Panel:
 	var viewport_size := get_viewport_rect().size
 	var panel := Panel.new()
 	panel.name = "DialogPanel"
-	panel.size = Vector2(DIALOG_WIDTH, height)
-	panel.position = Vector2((viewport_size.x - DIALOG_WIDTH) / 2.0, (viewport_size.y - height) / 2.0)
+	panel.size = Vector2(width, height)
+	panel.position = Vector2((viewport_size.x - width) / 2.0, (viewport_size.y - height) / 2.0)
 	_apply_panel_theme(panel, THEME_PANEL_DIALOG)
 	panel.tree_entered.connect(_animate_dialog_panel.bind(panel), CONNECT_ONE_SHOT)
 	return panel
@@ -4973,18 +5058,19 @@ func _add_dialog_header(panel: Panel, title: String, header_color: Color = COLOR
 	header_style.corner_detail = 32
 	header.add_theme_stylebox_override("panel", header_style)
 	header.position = Vector2(2, 2)
-	header.size = Vector2(DIALOG_WIDTH - 4.0, 54)
+	header.size = Vector2(panel.size.x - 4.0, 54.8)
 	panel.add_child(header)
 
-	var title_label := _make_absolute_label(title.to_upper(), 30, COLOR_TEXT_INVERSE, 900)
+	var title_label := _make_absolute_label(title.to_upper(), 28, COLOR_TEXT_INVERSE, 800, 2)
 	title_label.position = Vector2.ZERO
-	title_label.size = Vector2(DIALOG_WIDTH, 56)
+	title_label.size = Vector2(panel.size.x, 58.8)
 	panel.add_child(title_label)
 
 func _make_dialog_button(text: String, callback: Callable, color: Color) -> Button:
-	var button := Button.new()
+	var button := TouchButton.new()
 	button.text = text
-	button.custom_minimum_size = Vector2(DIALOG_WIDTH - 24.0, DIALOG_BUTTON_HEIGHT)
+	button.custom_minimum_size = Vector2(0, DIALOG_BUTTON_HEIGHT)
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_apply_button_theme(button, _button_theme_for_color(color, THEME_BUTTON_PAGE_PRIMARY, THEME_BUTTON_PAGE_SECONDARY))
 	_wire_button_feedback(button, "tap")
 	button.pressed.connect(callback)
@@ -4998,9 +5084,9 @@ func _make_dialog_action_button(text: String, callback: Callable, color: Color) 
 
 func _make_best_score_badge() -> Panel:
 	var badge := Panel.new()
-	badge.size = Vector2(124, 28)
-	var badge_color := COLOR_GOLD if did_set_new_best else COLOR_SURFACE
-	_apply_panel_theme(badge, THEME_PANEL_BADGE_GOLD if did_set_new_best else THEME_PANEL_BADGE_SURFACE)
+	badge.size = Vector2(100, 25)
+	var badge_color := COLOR_GOLD if did_set_new_best else Color(0.086, 0.541, 0.678, 0.18)
+	badge.add_theme_stylebox_override("panel", _make_capsule_style(badge_color))
 
 	var badge_text := "New Best!" if did_set_new_best else "BEST %s" % best_score
 	var text_color := COLOR_TEXT_INVERSE if did_set_new_best else _get_button_text_color(badge_color)
@@ -5013,19 +5099,18 @@ func _add_dialog_stat_row(container: VBoxContainer, label_text: String, value: i
 	_add_dialog_stat_text_row(container, label_text, str(value))
 
 func _add_dialog_stat_text_row(container: VBoxContainer, label_text: String, value_text: String) -> void:
-	var row := HBoxContainer.new()
-	row.custom_minimum_size = Vector2(DIALOG_WIDTH - 24.0, 36)
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	var row := Control.new()
+	row.custom_minimum_size = Vector2(0, 38.4)
 	container.add_child(row)
-
-	var label := _make_absolute_label(label_text, 16, COLOR_INK, 800)
+	var label := _make_absolute_label(label_text, 16, COLOR_INK, 700)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	label.position = Vector2(16, 0)
+	label.size = Vector2(container.size.x - 64.0, 38.4)
 	row.add_child(label)
-
-	var value_label := _make_absolute_label(value_text, 16, COLOR_PRIMARY, 800)
+	var value_label := _make_absolute_label(value_text, 14, COLOR_PRIMARY, 700)
 	value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	value_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	value_label.position = Vector2(container.size.x - 64.0, 0)
+	value_label.size = Vector2(48, 38.4)
 	row.add_child(value_label)
 
 func _add_battle_result_column(
@@ -5037,8 +5122,8 @@ func _add_battle_result_column(
 ) -> void:
 	var column := VBoxContainer.new()
 	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	column.custom_minimum_size = Vector2(124, 156)
-	column.alignment = BoxContainer.ALIGNMENT_CENTER
+	column.custom_minimum_size = Vector2(0, 0)
+	column.alignment = BoxContainer.ALIGNMENT_BEGIN
 	column.add_theme_constant_override("separation", 8)
 	container.add_child(column)
 
@@ -5056,10 +5141,10 @@ func _add_battle_result_column(
 		name_row.add_child(crown_slot)
 		_add_crown_icon(crown_slot, 16, COLOR_GOLD)
 
-	var name_label := _make_absolute_label(player_name, 14, COLOR_GOLD if is_winner else COLOR_INK_SOFT, 900)
+	var name_label := _make_absolute_label(player_name.to_upper(), 14, COLOR_GOLD if is_winner else COLOR_INK_SOFT, 700)
 	name_label.clip_text = true
-	name_label.custom_minimum_size = Vector2(0, 28)
-	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_label.custom_minimum_size = Vector2(minf(105.0, _make_ui_font(700).get_string_size(player_name.to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x), 28)
+	name_label.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	name_row.add_child(name_label)
 
 	_add_battle_column_stat(column, "Atomized", str(0 if player == null else int(player.get("stageIndex", 0))), COLOR_PRIMARY)
@@ -5069,17 +5154,22 @@ func _add_battle_result_column(
 		_add_battle_column_stat(column, "EXP", "+%s" % exp_gained, COLOR_GOLD)
 
 func _add_battle_column_stat(container: VBoxContainer, label_text: String, value_text: String, value_color: Color) -> void:
+	var inset := MarginContainer.new()
+	inset.custom_minimum_size = Vector2(0, 38.4)
+	inset.add_theme_constant_override("margin_left", 20)
+	inset.add_theme_constant_override("margin_right", 20)
+	container.add_child(inset)
 	var row := HBoxContainer.new()
-	row.custom_minimum_size = Vector2(124, 32)
+	row.custom_minimum_size = Vector2(0, 38.4)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	container.add_child(row)
+	inset.add_child(row)
 
-	var label := _make_absolute_label(label_text, 11, COLOR_INK_SOFT, 800)
+	var label := _make_absolute_label(label_text, 16, COLOR_INK, 700)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(label)
 
-	var value_label := _make_absolute_label(value_text, 13, value_color, 900)
+	var value_label := _make_absolute_label(value_text, 14, value_color, 700)
 	value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	value_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(value_label)
@@ -5105,12 +5195,17 @@ func _add_crown_icon(parent: Control, size: float, color: Color) -> void:
 	base.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	parent.add_child(base)
 
-func _make_absolute_label(text: String, font_size: int, color: Color, weight: int) -> Label:
+func _make_absolute_label(text: String, font_size: int, color: Color, weight: int, tracking: int = 0) -> Label:
 	var label := Label.new()
 	label.text = text
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	label.label_settings = _make_label_settings(font_size, color, weight)
+	if tracking != 0:
+		var tracked_font := FontVariation.new()
+		tracked_font.base_font = label.label_settings.font
+		tracked_font.spacing_glyph = tracking
+		label.label_settings.font = tracked_font
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return label
 
@@ -5222,10 +5317,9 @@ func _play_hp_hit(bar: ProgressBar, damage: int) -> void:
 
 	var severity := _attack_severity(damage)
 	_shake_control(bar, 6.0 + float(severity) * 3.0)
-	_shake_screen(4.0 + float(severity) * 2.0)
+	_shake_control(target_blob_panel, 4.0)
+	_shake_control(enemy_avatar_panel, 4.0)
 	_spawn_battle_hit_flash(bar == player_hp_bar, severity)
-	_pulse_hp_bar_theme(bar, THEME_PROGRESS_DANGER, 0.42 + float(severity) * 0.06)
-	_pulse_label_color(_hp_label_for_bar(bar), COLOR_DANGER, _base_hp_color_for_bar(bar), 0.42)
 	_flash_control(bar, COLOR_DANGER, 0.56)
 	_spawn_damage_pop("-%s" % damage, _hp_pop_position(bar), COLOR_DANGER)
 
@@ -5234,10 +5328,7 @@ func _play_hp_regen(bar: ProgressBar, regen: int, source: Vector2) -> void:
 		return
 
 	var target := _hp_bar_center(bar)
-	_pulse_hp_bar_theme(bar, THEME_PROGRESS_GOLD, 0.54)
-	_pulse_label_color(_hp_label_for_bar(bar), COLOR_GOLD, _base_hp_color_for_bar(bar), 0.54)
 	_shine_hp_bar(bar)
-	_flash_control(bar, COLOR_GOLD, 0.48)
 	_spawn_damage_pop("+%s" % regen, _hp_pop_position(bar), COLOR_GOLD)
 	_spawn_heal_stream(source, target, regen)
 
@@ -5301,15 +5392,15 @@ func _shine_hp_bar(bar: ProgressBar) -> void:
 		return
 
 	var shine := ColorRect.new()
-	shine.color = Color(COLOR_GOLD.r, COLOR_GOLD.g, COLOR_GOLD.b, 0.42)
-	shine.position = Vector2(-16, -2)
-	shine.size = Vector2(16, bar.size.y + 4)
+	shine.color = Color(COLOR_GOLD_STRONG, 0.85)
+	shine.position = Vector2(-bar.size.x * 0.27, -2)
+	shine.size = Vector2(bar.size.x * 0.18, bar.size.y + 4)
 	shine.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	bar.add_child(shine)
 
 	var tween := shine.create_tween()
 	tween.set_parallel(true)
-	tween.tween_property(shine, "position", Vector2(bar.size.x + 16.0, -2), 0.56).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tween.tween_property(shine, "position", Vector2(bar.size.x * 0.936, -2), 0.56).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	tween.tween_property(shine, "modulate", Color(1, 1, 1, 0), 0.56).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
 	tween.finished.connect(shine.queue_free)
 
@@ -5321,7 +5412,8 @@ func _hp_bar_center(bar: ProgressBar) -> Vector2:
 	if not is_instance_valid(bar):
 		return _target_center()
 
-	return bar.global_position + (bar.size / 2.0)
+	var label: Label = _hp_label_for_bar(bar)
+	return Vector2(bar.global_position.x + bar.size.x / 2.0, (label.global_position.y + bar.global_position.y + bar.size.y) / 2.0)
 
 func _attack_severity(damage: int) -> int:
 	if damage > 30:
@@ -5334,20 +5426,6 @@ func _attack_severity(damage: int) -> int:
 		return 1
 
 	return 0
-
-func _shake_screen(distance: float) -> void:
-	if _prefers_reduced_motion():
-		return
-
-	var origin := position
-	var tween := _make_control_tween(self, "screen-shake")
-	tween.set_trans(Tween.TRANS_SINE)
-	tween.set_ease(Tween.EASE_OUT)
-	tween.tween_property(self, "position", origin + Vector2(-distance, 0), 0.035)
-	tween.tween_property(self, "position", origin + Vector2(distance * 0.72, -distance * 0.28), 0.035)
-	tween.tween_property(self, "position", origin + Vector2(-distance * 0.48, distance * 0.24), 0.035)
-	tween.tween_property(self, "position", origin + Vector2(distance * 0.24, 0), 0.035)
-	tween.tween_property(self, "position", origin, 0.035)
 
 func _spawn_battle_hit_flash(player_hit: bool, severity: int) -> void:
 	var viewport_size := get_viewport_rect().size
@@ -5485,7 +5563,7 @@ func _spawn_confetti_particle(
 	var tween := particle.create_tween()
 	if delay > 0.0:
 		tween.tween_interval(delay)
-	tween.set_parallel(true)
+	tween.set_parallel(true).chain()
 	tween.tween_property(particle, "position", mid_target - (particle.size / 2.0), 0.39).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	tween.tween_property(particle, "scale", Vector2(1.15, 1.15), 0.39).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	tween.tween_property(particle, "modulate", Color(1, 1, 1, 1), 0.39).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
@@ -5528,9 +5606,7 @@ func _spawn_attack_particles(
 		(source.x + target.x) / 2.0 + 42.0 * horizontal_direction * spread_scale,
 		min(source.y, target.y) - 88.0 * spread_scale
 	)
-	var glow_theme := _attack_glow_theme_for_ball(ball_theme)
 
-	_spawn_attack_launch_flare(source, direction, fill_theme, ring_theme, severity)
 	_spawn_attack_bullet(source, control, target, ball_theme, flight_duration, lead_size)
 
 	for index in range(trail_count):
@@ -5544,41 +5620,18 @@ func _spawn_attack_particles(
 			fill_theme,
 			max(0.01, flight_duration - delay),
 			delay,
-			index + 1,
 			size,
 			tangent,
 			wobble,
 			float(index) * 1.8
 		)
 
-	_spawn_attack_impact_flash(target, fill_theme, ring_theme, glow_theme, severity, impact_delay, impact_duration)
 	_spawn_impact_rings(target, ring_theme, severity, impact_delay, impact_duration)
 
 	if completion_callback.is_valid():
 		var completion_tween := create_tween().set_pause_mode(Tween.TWEEN_PAUSE_STOP)
 		completion_tween.tween_interval(duration)
 		completion_tween.tween_callback(completion_callback)
-
-func _spawn_attack_launch_flare(
-	center: Vector2,
-	direction: Vector2,
-	fill_theme: String,
-	ring_theme: String,
-	severity: int
-) -> void:
-	var tangent := Vector2(-direction.y, direction.x)
-	var flare_size := 16.0 + float(severity) * 4.0
-	var recoil_target := center - (direction * (20.0 + float(severity) * 4.0))
-	_spawn_attack_impact_ring(center, recoil_target, ring_theme, 0.0, BATTLE_ATTACK_LAUNCH_FLARE_SECONDS, flare_size)
-
-	var spark_count := 4 + severity
-	for index in range(spark_count):
-		var side := -1.0 if index % 2 == 0 else 1.0
-		var lane := tangent * side * (5.0 + float(index / 2) * 4.0)
-		var source := center + (lane * 0.18)
-		var target := center - (direction * (22.0 + float(index) * 5.0)) + lane
-		var size := 5.0 + float(severity) * 1.5
-		_spawn_particle(source, target, fill_theme, 0.16 + float(index) * 0.012, index, 0.0, size)
 
 func _spawn_attack_bullet(
 	source: Vector2,
@@ -5614,13 +5667,13 @@ func _spawn_attack_path_particle(
 	theme_name: String,
 	duration: float,
 	delay: float,
-	index: int,
 	particle_size: float,
 	tangent: Vector2,
 	wobble: float,
 	wobble_phase: float
 ) -> void:
 	var particle := _make_particle_panel(theme_name, particle_size)
+	particle.name = "AttackTrail"
 	particle.position = source - (particle.size / 2.0)
 	particle.modulate = Color(1, 1, 1, 0)
 	add_child(particle)
@@ -5628,7 +5681,6 @@ func _spawn_attack_path_particle(
 	var tween := particle.create_tween().bind_node(particle)
 	if delay > 0.0:
 		tween.tween_interval(delay)
-	tween.set_parallel(true)
 	tween.tween_method(
 		_position_attack_particle.bind(particle, source, control, target, tangent, wobble, wobble_phase),
 		0.0,
@@ -5684,54 +5736,6 @@ func _quadratic_bezier_vec2(source: Vector2, control: Vector2, target: Vector2, 
 func _quadratic_bezier_tangent_vec2(source: Vector2, control: Vector2, target: Vector2, progress: float) -> Vector2:
 	return ((control - source) * 2.0 * (1.0 - progress)) + ((target - control) * 2.0 * progress)
 
-func _spawn_attack_impact_flash(
-	center: Vector2,
-	fill_theme: String,
-	ring_theme: String,
-	glow_theme: String,
-	severity: int,
-	delay: float,
-	duration: float
-) -> void:
-	var flash_size := _attack_impact_radius(severity) * 1.25
-	var flash := _make_particle_panel_sized(glow_theme, Vector2(flash_size, flash_size))
-	flash.name = "AttackImpactFlash"
-	flash.position = center - (flash.size / 2.0)
-	flash.scale = Vector2(0.18, 0.18)
-	flash.modulate = Color(1, 1, 1, 0)
-	add_child(flash)
-
-	var flash_tween := flash.create_tween()
-	if delay > 0.0:
-		flash_tween.tween_interval(delay)
-	flash_tween.set_parallel(true)
-	flash_tween.tween_property(flash, "scale", Vector2(1.28 + float(severity) * 0.12, 1.28 + float(severity) * 0.12), min(duration, BATTLE_ATTACK_IMPACT_FLASH_SECONDS)).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	flash_tween.tween_property(flash, "modulate", Color(1, 1, 1, 0.0), min(duration, BATTLE_ATTACK_IMPACT_FLASH_SECONDS)).from(Color(1, 1, 1, 0.74)).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-	flash_tween.finished.connect(flash.queue_free)
-
-	var shock_size: float = max(20.0, _attack_impact_radius(severity) * 0.74)
-	var shockwave := _make_particle_panel_sized(ring_theme, Vector2(shock_size, shock_size))
-	shockwave.name = "AttackImpactShockwave"
-	shockwave.position = center - (shockwave.size / 2.0)
-	shockwave.scale = Vector2(0.32, 0.32)
-	shockwave.modulate = Color(1, 1, 1, 0)
-	add_child(shockwave)
-
-	var shock_tween := shockwave.create_tween()
-	if delay > 0.0:
-		shock_tween.tween_interval(delay)
-	shock_tween.set_parallel(true)
-	shock_tween.tween_property(shockwave, "scale", Vector2(2.0 + float(severity) * 0.22, 2.0 + float(severity) * 0.22), duration).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	shock_tween.tween_property(shockwave, "modulate", Color(1, 1, 1, 0), duration).from(Color(1, 1, 1, 0.84)).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-	shock_tween.finished.connect(shockwave.queue_free)
-
-	var spark_count := 5 + severity * 2
-	for index in range(spark_count):
-		var angle := (TAU * float(index)) / float(spark_count) + 0.18
-		var distance := _attack_impact_radius(severity) * (0.42 + float(index % 3) * 0.12)
-		var endpoint := center + Vector2(cos(angle), sin(angle)) * distance
-		_spawn_particle(center, endpoint, fill_theme, min(0.22, duration), index, delay + float(index % 2) * 0.015, 4.0 + float(severity) * 1.5)
-
 func _spawn_impact_rings(center: Vector2, ring_theme: String, severity: int, delay: float, duration: float) -> void:
 	var ring_count := _attack_ring_count(severity)
 	var radius := _attack_impact_radius(severity)
@@ -5743,24 +5747,21 @@ func _spawn_impact_rings(center: Vector2, ring_theme: String, severity: int, del
 
 func _spawn_attack_impact_ring(source: Vector2, target: Vector2, ring_theme: String, delay: float, duration: float, particle_size: float) -> void:
 	var particle := _make_particle_panel(ring_theme, particle_size)
+	particle.name = "AttackImpactRing"
 	particle.position = source - (particle.size / 2.0)
-	particle.modulate = Color(1, 1, 1, 0)
+	particle.modulate.a = 0.0
 	add_child(particle)
 
-	var motion_tween := particle.create_tween()
-	if delay > 0.0:
-		motion_tween.tween_interval(delay)
-	motion_tween.set_parallel(true)
-	motion_tween.tween_property(particle, "position", target - (particle.size / 2.0), duration).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	motion_tween.tween_property(particle, "scale", Vector2(0.6, 0.6), duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	motion_tween.finished.connect(particle.queue_free)
+	var tween := particle.create_tween()
+	tween.tween_interval(delay)
+	tween.tween_method(_position_attack_impact_ring.bind(particle, source, target, particle_size), 0.0, 1.0, duration)
+	tween.finished.connect(particle.queue_free)
 
-	var fade_tween := particle.create_tween()
-	if delay > 0.0:
-		fade_tween.tween_interval(delay)
-	var fade_in_duration: float = min(0.05, duration * 0.3)
-	fade_tween.tween_property(particle, "modulate", Color(1, 1, 1, 0.9), fade_in_duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	fade_tween.tween_property(particle, "modulate", Color(1, 1, 1, 0), max(0.01, duration - fade_in_duration)).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+func _position_attack_impact_ring(progress: float, particle: Control, source: Vector2, target: Vector2, initial_size: float) -> void:
+	var eased := 1.0 - (1.0 - progress) * (1.0 - progress)
+	particle.size = Vector2.ONE * initial_size * (1.0 - eased * 0.4)
+	particle.position = source.lerp(target, eased) - particle.size / 2.0
+	particle.modulate.a = (1.0 - eased) * 0.9
 
 func _make_particle_panel(theme_name: String, particle_size: float) -> Panel:
 	return _make_particle_panel_sized(theme_name, Vector2(particle_size, particle_size))
@@ -5793,7 +5794,7 @@ func _spawn_particle(
 	var motion_tween := particle.create_tween()
 	if delay > 0.0:
 		motion_tween.tween_interval(delay)
-	motion_tween.set_parallel(true)
+	motion_tween.set_parallel(true).chain()
 	motion_tween.tween_property(particle, "position", target - (particle.size / 2.0) + arc_lift, duration).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	motion_tween.tween_property(particle, "scale", Vector2(0.18, 0.18), duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
 	motion_tween.finished.connect(particle.queue_free)
@@ -5806,277 +5807,24 @@ func _spawn_particle(
 		fade_tween.tween_property(particle, "modulate", Color(1, 1, 1, 1), fade_in_duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 	fade_tween.tween_property(particle, "modulate", Color(1, 1, 1, 0), max(0.01, duration - fade_in_duration)).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
 
+func _spawn_support_effect(kind: String, source: Vector2, target: Vector2, amount: int = 0) -> Control:
+	var effect := BattleSupportEffect.new()
+	effect.name = "BattleSupportEffect"
+	add_child(effect, true)
+	effect.configure(kind, source, target, amount)
+	return effect
+
 func _spawn_heal_stream(source: Vector2, target: Vector2, regen: int) -> void:
-	var severity := _regen_severity(regen)
-	var mote_count := _heal_mote_count(severity)
-	var delta := target - source
-	var direction := delta.normalized() if delta.length() > 0.0 else Vector2.UP
-	var tangent := Vector2(-direction.y, direction.x)
-	var control_base := (source + target) / 2.0 + Vector2(0, -48.0 - float(severity) * 16.0)
-
-	_spawn_heal_pulse(target, severity)
-
-	for index in range(mote_count):
-		var side := -1.0 if index % 2 == 0 else 1.0
-		var lane := tangent * side * (6.0 + float(index % 4) * 3.0)
-		var start := source + (lane * 0.2) - (direction * float(index % 3) * 4.0)
-		var control := control_base + (lane * 1.2) + Vector2(0, -float(index % 3) * 8.0)
-		var end := target + (lane * 0.18) + Vector2(0, -float(index % 2) * 4.0)
-		var delay := float(index) * BATTLE_HEAL_STREAM_STEP
-		var duration: float = max(0.22, BATTLE_HEAL_STREAM_SECONDS - delay * 0.25)
-		var particle_size := 6.0 + float(index % 3) * 2.0 + float(severity)
-		var theme_name := THEME_PANEL_PARTICLE_GOLD_STRONG if index % 4 == 0 else THEME_PANEL_PARTICLE_GOLD
-		_spawn_heal_mote(start, control, end, theme_name, particle_size, delay, duration)
-
-func _spawn_heal_pulse(center: Vector2, severity: int) -> void:
-	var pulse_size := 36.0 + float(severity) * 12.0
-	var pulse := _make_particle_panel_sized(THEME_PANEL_HEAL_GLOW, Vector2(pulse_size, pulse_size))
-	pulse.name = "HealPulse"
-	pulse.position = center - (pulse.size / 2.0)
-	pulse.scale = Vector2(0.32, 0.32)
-	pulse.modulate = Color(1, 1, 1, 0)
-	add_child(pulse)
-
-	var pulse_tween := pulse.create_tween()
-	pulse_tween.set_parallel(true)
-	pulse_tween.tween_property(pulse, "scale", Vector2(1.46 + float(severity) * 0.12, 1.46 + float(severity) * 0.12), BATTLE_HEAL_PULSE_SECONDS).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	pulse_tween.tween_property(pulse, "modulate", Color(1, 1, 1, 0), BATTLE_HEAL_PULSE_SECONDS).from(Color(1, 1, 1, 0.74)).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-	pulse_tween.finished.connect(pulse.queue_free)
-
-	var ring := _make_particle_panel_sized(THEME_PANEL_PARTICLE_RING_GOLD, Vector2(pulse_size * 0.72, pulse_size * 0.72))
-	ring.name = "HealRing"
-	ring.position = center - (ring.size / 2.0)
-	ring.scale = Vector2(0.44, 0.44)
-	ring.modulate = Color(1, 1, 1, 0)
-	add_child(ring)
-
-	var ring_tween := ring.create_tween()
-	ring_tween.set_parallel(true)
-	ring_tween.tween_property(ring, "scale", Vector2(1.8 + float(severity) * 0.16, 1.8 + float(severity) * 0.16), BATTLE_HEAL_PULSE_SECONDS * 0.92).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	ring_tween.tween_property(ring, "modulate", Color(1, 1, 1, 0), BATTLE_HEAL_PULSE_SECONDS * 0.92).from(Color(1, 1, 1, 0.86)).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-	ring_tween.finished.connect(ring.queue_free)
-
-func _spawn_heal_mote(
-	source: Vector2,
-	control: Vector2,
-	target: Vector2,
-	theme_name: String,
-	particle_size: float,
-	delay: float,
-	duration: float
-) -> void:
-	var mote := _make_particle_panel(theme_name, particle_size)
-	mote.name = "HealMote"
-	mote.position = source - (mote.size / 2.0)
-	mote.scale = Vector2(0.72, 0.72)
-	mote.modulate = Color(1, 1, 1, 0)
-	add_child(mote)
-
-	var motion_tween := mote.create_tween()
-	if delay > 0.0:
-		motion_tween.tween_interval(delay)
-	motion_tween.set_parallel(true)
-	motion_tween.tween_method(
-		_position_heal_mote.bind(mote, source, control, target),
-		0.0,
-		1.0,
-		duration
-	).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	motion_tween.tween_property(mote, "scale", Vector2(0.38, 0.38), duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-	motion_tween.finished.connect(mote.queue_free)
-
-	var fade_tween := mote.create_tween()
-	if delay > 0.0:
-		fade_tween.tween_interval(delay)
-	var fade_in_duration: float = min(0.1, duration * 0.28)
-	fade_tween.tween_property(mote, "modulate", Color(1, 1, 1, 1), fade_in_duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	fade_tween.tween_property(mote, "modulate", Color(1, 1, 1, 0), max(0.01, duration - fade_in_duration)).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-
-func _position_heal_mote(
-	progress: float,
-	mote: Control,
-	source: Vector2,
-	control: Vector2,
-	target: Vector2
-) -> void:
-	if not is_instance_valid(mote):
-		return
-
-	var t: float = clamp(progress, 0.0, 1.0)
-	var eased := 1.0 - ((1.0 - t) * (1.0 - t))
-	var point := _quadratic_bezier_vec2(source, control, target, eased)
-	mote.position = point - (mote.size / 2.0)
+	_spawn_support_effect("heal", source, target, regen)
 
 func _spawn_fault_ricochet(source: Vector2, target: Vector2, damage: int) -> void:
-	var severity := _attack_severity(damage)
-	var delta := target - source
-	var direction := delta.normalized() if delta.length() > 0.0 else Vector2.DOWN
-	var horizontal_direction := 1.0 if target.x >= source.x else -1.0
-	var control := (source + target) / 2.0 + Vector2(28.0 * horizontal_direction, -40.0 - float(severity) * 8.0)
-	var particle_size := Vector2(20.0 + float(severity) * 4.0, 6.0 + float(severity))
-	var ricochet := _make_particle_panel_sized(THEME_PANEL_FAULT_SHARD, particle_size)
-	ricochet.name = "FaultRicochet"
-	ricochet.position = source - (ricochet.size / 2.0)
-	ricochet.rotation = direction.angle()
-	ricochet.modulate = Color(1, 1, 1, 0)
-	add_child(ricochet)
-
-	var motion_tween := ricochet.create_tween()
-	motion_tween.set_parallel(true)
-	motion_tween.tween_method(
-		_position_fault_ricochet.bind(ricochet, source, control, target),
-		0.0,
-		1.0,
-		BATTLE_FAULT_RICOCHET_SECONDS
-	).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
-	motion_tween.finished.connect(ricochet.queue_free)
-
-	var fade_tween := ricochet.create_tween()
-	fade_tween.tween_property(ricochet, "modulate", Color(1, 1, 1, 1), 0.06).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	fade_tween.tween_interval(BATTLE_FAULT_RICOCHET_SECONDS * 0.52)
-	fade_tween.tween_property(ricochet, "modulate", Color(1, 1, 1, 0), BATTLE_FAULT_RICOCHET_SECONDS * 0.3).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-
-	var impact_tween := create_tween().set_pause_mode(Tween.TWEEN_PAUSE_STOP)
-	impact_tween.tween_interval(BATTLE_FAULT_RICOCHET_SECONDS * 0.8)
-	impact_tween.tween_callback(_spawn_fault_shards.bind(target, 6 + severity * 2))
-
-func _position_fault_ricochet(
-	progress: float,
-	ricochet: Control,
-	source: Vector2,
-	control: Vector2,
-	target: Vector2
-) -> void:
-	if not is_instance_valid(ricochet):
-		return
-
-	var t: float = clamp(progress, 0.0, 1.0)
-	var accelerated := t * t
-	var point := _quadratic_bezier_vec2(source, control, target, accelerated)
-	var tangent := _quadratic_bezier_tangent_vec2(source, control, target, accelerated)
-	if tangent.length() > 0.0:
-		ricochet.rotation = tangent.angle()
-	ricochet.position = point - (ricochet.size / 2.0)
+	_spawn_support_effect("fault", source, target, damage)
 
 func _spawn_fault_shards(center: Vector2, count: int = 7) -> void:
-	var glow_size := 34.0
-	var glow := _make_particle_panel_sized(THEME_PANEL_FAULT_GLOW, Vector2(glow_size, glow_size))
-	glow.name = "FaultGlow"
-	glow.position = center - (glow.size / 2.0)
-	glow.scale = Vector2(0.28, 0.28)
-	glow.modulate = Color(1, 1, 1, 0)
-	add_child(glow)
-
-	var glow_tween := glow.create_tween()
-	glow_tween.set_parallel(true)
-	glow_tween.tween_property(glow, "scale", Vector2(1.5, 1.5), 0.22).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	glow_tween.tween_property(glow, "modulate", Color(1, 1, 1, 0), 0.22).from(Color(1, 1, 1, 0.68)).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-	glow_tween.finished.connect(glow.queue_free)
-
-	for index in range(count):
-		var angle := (TAU * float(index)) / float(count) + 0.18
-		var distance := 18.0 + float(index % 3) * 7.0
-		var endpoint := center + Vector2(cos(angle), sin(angle)) * distance
-		_spawn_fault_shard(center, endpoint, index)
-
-func _spawn_fault_shard(source: Vector2, target: Vector2, index: int) -> void:
-	var shard_size := Vector2(10.0 + float(index % 2) * 4.0, 4.0)
-	var shard := _make_particle_panel_sized(THEME_PANEL_FAULT_SHARD, shard_size)
-	shard.name = "FaultShard"
-	shard.position = source - (shard.size / 2.0)
-	shard.rotation = (target - source).angle()
-	shard.modulate = Color(1, 1, 1, 0)
-	add_child(shard)
-
-	var duration := 0.24 + float(index % 2) * 0.04
-	var tween := shard.create_tween()
-	tween.set_parallel(true)
-	tween.tween_property(shard, "position", target - (shard.size / 2.0), duration).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	tween.tween_property(shard, "scale", Vector2(0.32, 0.32), duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-	tween.tween_property(shard, "modulate", Color(1, 1, 1, 0), duration).from(Color(1, 1, 1, 0.94)).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-	tween.finished.connect(shard.queue_free)
+	_spawn_support_effect("fault-burst", center, center, count)
 
 func _spawn_perfect_halo(center: Vector2) -> void:
-	var halo_size := 58.0
-	var halo := _make_particle_panel_sized(THEME_PANEL_PARTICLE_RING_GOLD, Vector2(halo_size, halo_size))
-	halo.name = "PerfectHalo"
-	halo.position = center - (halo.size / 2.0)
-	halo.scale = Vector2(0.36, 0.36)
-	halo.modulate = Color(1, 1, 1, 0)
-	add_child(halo)
-
-	var halo_tween := halo.create_tween()
-	halo_tween.set_parallel(true)
-	halo_tween.tween_property(halo, "scale", Vector2(2.1, 2.1), BATTLE_PERFECT_HALO_SECONDS).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	halo_tween.tween_property(halo, "modulate", Color(1, 1, 1, 0), BATTLE_PERFECT_HALO_SECONDS).from(Color(1, 1, 1, 0.88)).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-	halo_tween.finished.connect(halo.queue_free)
-
-	for index in range(8):
-		var angle := (TAU * float(index)) / 8.0
-		_spawn_perfect_orbit_mote(center, angle, index)
-
-func _spawn_perfect_orbit_mote(center: Vector2, angle: float, index: int) -> void:
-	var mote_size := 6.0 + float(index % 2) * 2.0
-	var mote := _make_particle_panel(THEME_PANEL_PARTICLE_GOLD_STRONG, mote_size)
-	mote.name = "PerfectOrbitMote"
-	mote.position = center - (mote.size / 2.0)
-	mote.modulate = Color(1, 1, 1, 0)
-	add_child(mote)
-
-	var start_radius := 18.0
-	var end_radius := 54.0 + float(index % 3) * 4.0
-	var duration := BATTLE_PERFECT_HALO_SECONDS * (0.72 + float(index % 2) * 0.08)
-	var tween := mote.create_tween()
-	tween.set_parallel(true)
-	tween.tween_method(
-		_position_perfect_orbit_mote.bind(mote, center, angle, start_radius, end_radius),
-		0.0,
-		1.0,
-		duration
-	).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	tween.tween_property(mote, "scale", Vector2(0.42, 0.42), duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-	tween.tween_property(mote, "modulate", Color(1, 1, 1, 0), duration).from(Color(1, 1, 1, 1)).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-	tween.finished.connect(mote.queue_free)
-
-func _position_perfect_orbit_mote(
-	progress: float,
-	mote: Control,
-	center: Vector2,
-	angle: float,
-	start_radius: float,
-	end_radius: float
-) -> void:
-	if not is_instance_valid(mote):
-		return
-
-	var t: float = clamp(progress, 0.0, 1.0)
-	var current_angle: float = angle + (t * 1.15)
-	var radius: float = start_radius + ((end_radius - start_radius) * t)
-	var point: Vector2 = center + Vector2(cos(current_angle), sin(current_angle)) * radius
-	mote.position = point - (mote.size / 2.0)
-
-func _regen_severity(regen: int) -> int:
-	if regen > 20:
-		return 3
-
-	if regen > 12:
-		return 2
-
-	if regen > 5:
-		return 1
-
-	return 0
-
-func _heal_mote_count(severity: int) -> int:
-	match severity:
-		3:
-			return 12
-		2:
-			return 9
-		1:
-			return 7
-		_:
-			return 5
+	_spawn_support_effect("perfect", center, center)
 
 func _attack_trail_count(severity: int) -> int:
 	match severity:
@@ -6303,7 +6051,6 @@ func _present_battle_event(event: Dictionary) -> void:
 		var released_damage := int(event.get("releasedDamage", 0))
 		var released_target_id := str(event.get("targetPlayerId", ""))
 		if released_damage > 0 and released_target_id != "":
-			_play_attack_launch(source_id, released_damage)
 			_spawn_attack_particles(
 				_battle_source_anchor(source_id),
 				_battle_hp_anchor(released_target_id),
@@ -6317,7 +6064,6 @@ func _present_battle_event(event: Dictionary) -> void:
 
 	var target_id := str(event.get("targetPlayerId", event.get("loserPlayerId", "")))
 	if damage > 0 and target_id != "":
-		_play_attack_launch(source_id, damage)
 		_spawn_attack_particles(
 			_battle_source_anchor(source_id),
 			_battle_hp_anchor(target_id),
@@ -6334,20 +6080,6 @@ func _present_battle_event(event: Dictionary) -> void:
 	if regen > 0:
 		_play_hp_regen(_hp_bar_for_player(source_id), regen, _battle_source_anchor(source_id))
 
-func _play_attack_launch(source_id: String, damage: int) -> void:
-	var severity := _attack_severity(damage)
-	var source_control = _battle_source_control(source_id)
-	if is_instance_valid(source_control):
-		_bump_control(source_control, 1.08 + float(severity) * 0.03, 0.14)
-		_flash_control(source_control, _player_accent_color(source_id), 0.22)
-
-	_spawn_radial_particles(
-		_battle_source_anchor(source_id),
-		_particle_fill_theme_for_player(source_id),
-		_particle_ring_theme_for_player(source_id),
-		5 + severity * 2
-	)
-
 func _play_source_fault(source_id: String) -> void:
 	var source_control = _battle_source_control(source_id)
 	if is_instance_valid(source_control):
@@ -6356,26 +6088,22 @@ func _play_source_fault(source_id: String) -> void:
 		_shake_control(source_control, 10.0)
 		_flash_control(source_control, COLOR_DANGER, 0.34)
 
-	_spawn_radial_particles(
-		_battle_source_anchor(source_id),
-		THEME_PANEL_PARTICLE_DANGER,
-		THEME_PANEL_PARTICLE_RING_DANGER,
-		7
-	)
-	_spawn_fault_shards(_battle_source_anchor(source_id), 5)
 
 func _play_perfect_burst(source_id: String) -> void:
-	var source_control = _battle_source_control(source_id)
-	if is_instance_valid(source_control):
-		_bump_control(source_control, 1.14, 0.2)
-		_flash_control(source_control, COLOR_GOLD, 0.36)
-		if source_control == target_blob_panel:
-			_pulse_panel_theme(target_blob_panel, THEME_PANEL_TARGET_GOLD, THEME_PANEL_TARGET, 0.48)
-
-	var center := _battle_source_anchor(source_id)
-	_spawn_damage_pop("PERFECT", center + Vector2(-48, -56), COLOR_GOLD, 1.12)
-	_spawn_perfect_halo(center)
-	_spawn_radial_particles(center, THEME_PANEL_PARTICLE_GOLD, THEME_PANEL_PARTICLE_RING_GOLD, 12)
+	_spawn_perfect_halo(_battle_source_anchor(source_id))
+	var bar := _hp_bar_for_player(source_id)
+	var tag := _make_absolute_label("PERFECT", 11, COLOR_GOLD, 700, 1)
+	tag.name = "PerfectTag"
+	tag.position = bar.position + Vector2((bar.size.x - 100.0) / 2.0, -22)
+	tag.size = Vector2(100, 14)
+	tag.pivot_offset = tag.size / 2.0
+	add_child(tag)
+	var tween := tag.create_tween()
+	tween.tween_method(func(t: float):
+		tag.modulate.a = minf(t / 0.2, 1.0) * minf((1.0 - t) / 0.32, 1.0)
+		tag.scale = Vector2.ONE * (lerpf(0.72, 1.04, t / 0.2) if t < 0.2 else lerpf(1.04, 0.92, (t - 0.2) / 0.8))
+	, 0.0, 1.0, 1.12)
+	tween.finished.connect(tag.queue_free)
 
 func _bump_control(control: Control, peak_scale: float, seconds: float) -> void:
 	if not is_instance_valid(control):
@@ -6418,9 +6146,6 @@ func _particle_ring_theme_for_player(player_id: String) -> String:
 
 func _particle_ball_theme_for_player(player_id: String) -> String:
 	return THEME_PANEL_ATTACK_BALL_SECONDARY if player_id == _battle_opponent_player_id() else THEME_PANEL_ATTACK_BALL_PRIMARY
-
-func _attack_glow_theme_for_ball(ball_theme: String) -> String:
-	return THEME_PANEL_ATTACK_GLOW_SECONDARY if ball_theme == THEME_PANEL_ATTACK_BALL_SECONDARY else THEME_PANEL_ATTACK_GLOW_PRIMARY
 
 func _make_control_tween(control: Control, channel: String) -> Tween:
 	var key := "%s:%s" % [control.get_instance_id(), channel]
@@ -6595,7 +6320,7 @@ func _append_synth_tone(
 		samples.encode_s16(start + index * 2, int(clampf(sample, -1.0, 1.0) * 32767.0))
 
 func _add_back_arrow_icon(parent: Control, width: float, height: float, color: Color) -> void:
-	_set_or_add_texture_icon(parent, "back", int(min(width, height)), color)
+	_set_or_add_texture_icon(parent, "back", 24, color)
 
 func _add_delete_icon(parent: Control, width: float, height: float, color: Color) -> void:
 	_set_or_add_texture_icon(parent, "delete", int(minf(23.2, minf(width, height) * 0.4)), color)
@@ -6610,28 +6335,28 @@ func _add_users_icon(parent: Control, size: float, color: Color) -> void:
 	_set_or_add_texture_icon(parent, "users", int(size), color)
 
 func _add_bot_avatar_icon(parent: Control, size: float, color: Color) -> void:
-	_set_or_add_texture_icon(parent, "bot", int(size), color)
+	_set_or_add_texture_icon(parent, "bot", 29 if size >= 80.0 else 18, color)
 
 func _add_guest_avatar_icon(parent: Control, size: float, color: Color) -> void:
-	_set_or_add_texture_icon(parent, "guest", int(size), color)
+	_set_or_add_texture_icon(parent, "guest", 29 if size >= 80.0 else 18, color)
 
 func _add_timer_icon(parent: Control, color: Color = COLOR_TEXT_INVERSE) -> void:
-	_set_or_add_texture_icon(parent, "timer", 32, color)
+	_set_or_add_texture_icon(parent, "timer", 24, color)
 
 func _add_battle_icon(parent: Control, color: Color = COLOR_TEXT_INVERSE) -> void:
-	_set_or_add_texture_icon(parent, "battle", 32, color)
+	_set_or_add_texture_icon(parent, "battle", 24, color)
 
 func _add_help_icon(parent: Control, color: Color = COLOR_TEXT_INVERSE) -> void:
 	_set_or_add_texture_icon(parent, "help", 32, color)
 
 func _add_page_timer_icon(parent: Control) -> void:
-	_set_or_add_texture_icon(parent, "timer", 64, COLOR_TEXT_INVERSE)
+	_set_or_add_texture_icon(parent, "timer", 72, COLOR_TEXT_INVERSE)
 
 func _add_page_battle_icon(parent: Control) -> void:
-	_set_or_add_texture_icon(parent, "battle", 64, COLOR_TEXT_INVERSE)
+	_set_or_add_texture_icon(parent, "battle", 72, COLOR_TEXT_INVERSE)
 
 func _add_page_trophy_icon(parent: Control) -> void:
-	_set_or_add_texture_icon(parent, "trophy", 64, COLOR_TEXT_INVERSE)
+	_set_or_add_texture_icon(parent, "trophy", 72, COLOR_TEXT_INVERSE)
 
 func _set_or_add_texture_icon(parent: Control, kind: String, icon_size: int, color: Color) -> void:
 	var texture := _get_icon_texture(kind, color, icon_size)
@@ -6647,7 +6372,8 @@ func _set_or_add_texture_icon(parent: Control, kind: String, icon_size: int, col
 	var texture_rect := TextureRect.new()
 	texture_rect.texture = texture
 	texture_rect.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
-	texture_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	texture_rect.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
+	texture_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	texture_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	texture_rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	parent.add_child(texture_rect)
@@ -6657,9 +6383,11 @@ func _get_icon_texture(kind: String, color: Color, size: int) -> Texture2D:
 	if icon_texture_cache.has(cache_key):
 		return icon_texture_cache[cache_key]
 
-	var image := _load_icon_image(kind, size)
+	var image := _load_icon_image(kind, size * 4)
 	_tint_icon_image(image, color)
+	image.generate_mipmaps()
 	var texture := ImageTexture.create_from_image(image)
+	texture.set_size_override(Vector2i(size, size))
 	icon_texture_cache[cache_key] = texture
 	return texture
 
@@ -6744,7 +6472,7 @@ func _make_dialog_panel_style(border_color: Color = COLOR_PRIMARY) -> StyleBoxFl
 	return style
 
 func _make_tutorial_panel_style() -> StyleBoxFlat:
-	var style := _make_panel_style(Color(1, 1, 1, 0.94))
+	var style := _make_panel_style(Color.WHITE)
 	style.shadow_size = 0
 	style.border_width_left = 0
 	style.border_width_top = 0
@@ -6878,9 +6606,6 @@ func _make_panel_style(color: Color) -> StyleBoxFlat:
 	style.border_width_top = PIXEL_BORDER
 	style.border_width_right = PIXEL_BORDER
 	style.border_width_bottom = PIXEL_BORDER
-	style.shadow_color = COLOR_BLOB_SHADOW
-	style.shadow_size = 12
-	style.shadow_offset = Vector2(0, 8)
 	style.content_margin_left = 20
 	style.content_margin_right = 20
 	style.content_margin_top = 20
@@ -6984,15 +6709,16 @@ func _reflow_game_layout(refresh_coach: bool = true) -> void:
 			menu_button.position = Vector2(maxf(8.0, _safe_area_left()), game_layout.top)
 		_set_control_rect(target_blob_panel, game_layout["self_blob"])
 		_set_control_rect(enemy_avatar_panel, game_layout["enemy_blob"])
+		enemy_avatar_panel.visible = not _tutorial_focuses_player()
 		target_blob_panel.refresh_font(game_layout["self_font"])
 		enemy_avatar_panel.refresh_font(game_layout["enemy_font"])
 		var enemy_hp: Rect2 = game_layout["enemy_hp"]
 		var self_hp: Rect2 = game_layout["player_hp"]
-		_set_control_rect(get_node("EnemyName"), Rect2(enemy_hp.position, Vector2(enemy_hp.size.x - 84.0, 22)))
+		_set_control_rect(get_node("EnemyName"), Rect2(enemy_hp.position + Vector2(52, 10), Vector2(enemy_hp.size.x - 136.0, 22)))
 		_set_control_rect(get_node("PlayerName"), Rect2(self_hp.position, Vector2(self_hp.size.x - 84.0, 22)))
-		_set_control_rect(enemy_hp_label, Rect2(enemy_hp.position + Vector2(enemy_hp.size.x - 80.0, 0), Vector2(80, 22)))
+		_set_control_rect(enemy_hp_label, Rect2(enemy_hp.position + Vector2(enemy_hp.size.x - 80.0, 10), Vector2(80, 22)))
 		_set_control_rect(player_hp_label, Rect2(self_hp.position + Vector2(self_hp.size.x - 80.0, 0), Vector2(80, 22)))
-		_set_control_rect(enemy_hp_bar, Rect2(enemy_hp.position + Vector2(0, 22.0), Vector2(enemy_hp.size.x, 10.5)))
+		_set_control_rect(enemy_hp_bar, Rect2(enemy_hp.position + Vector2(0, 44.0), Vector2(enemy_hp.size.x, 10.5)))
 		_set_control_rect(player_hp_bar, Rect2(self_hp.position + Vector2(0, 22.0), Vector2(self_hp.size.x, 10.5)))
 		_set_control_rect(get_node("BattleQueueSlot"), game_layout["queue"])
 		result_label.position.y = self_hp.position.y - 28.0
@@ -7040,6 +6766,8 @@ func _add_tutorial_highlight(overlay: Control) -> void:
 		TutorialStep.STAGE_ONE_SUBMIT, TutorialStep.STAGE_TWO_FINISH_SUBMIT, TutorialStep.PERFECT_SOLVE_SUBMIT, TutorialStep.OVERFLOW_SUBMIT, TutorialStep.OVERFLOW_CLEAR:
 			target = submit_button
 		_:
+			if _tutorial_is_interaction_blocked():
+				return
 			var expected := _tutorial_expected_queue()
 			if battle_prime_queue.size() >= expected.size():
 				target = submit_button
@@ -7053,10 +6781,15 @@ func _add_tutorial_highlight(overlay: Control) -> void:
 		frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		frame.position = target.global_position - overlay.global_position - Vector2.ONE * 3.0
 		frame.size = target.size + Vector2.ONE * 6.0
+		if tutorial_step == TutorialStep.STAGE_ONE_QUEUE:
+			frame.size = queue_label.get_combined_minimum_size() + Vector2.ONE * 12.0
+			frame.position = target.get_global_rect().get_center() - overlay.global_position - frame.size / 2.0
 		var style := StyleBoxFlat.new()
 		style.bg_color = Color.TRANSPARENT
 		style.border_color = Color(0.086, 0.541, 0.678, 0.38)
 		style.set_border_width_all(2)
+		if tutorial_step == TutorialStep.STAGE_ONE_QUEUE:
+			style.set_corner_radius_all(2048)
 		if target is Button:
 			if target != submit_button:
 				frame.free()

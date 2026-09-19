@@ -302,6 +302,16 @@ function createRoomFixtures(): readonly RoomStepFixture[] {
         snapshot,
     });
 
+    const guestFactors = [...snapshot.players[1].stage.remainingFactors];
+    for (const [index, prime] of guestFactors.entries()) {
+        snapshot = applyBattlePrimeSelection(snapshot, 'guest', prime, {
+            perfectSolveEligible: true,
+            resolvingQueueLength: guestFactors.length,
+            suppressAttack: index < guestFactors.length - 1,
+        });
+        steps.push({ label: `guest-prime-${index + 1}`, snapshot });
+    }
+
     return steps;
 }
 

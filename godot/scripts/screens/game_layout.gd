@@ -1,14 +1,14 @@
 extends RefCounted
 
-# Logical phone coordinates, with room reserved for an active tutorial card.
-static func measure(viewport: Vector2, insets: Dictionary, battle: bool, coach_height: float = 0.0) -> Dictionary:
+# Logical phone coordinates shared by gameplay and floating tutorial overlays.
+static func measure(viewport: Vector2, insets: Dictionary, battle: bool) -> Dictionary:
 	var padding := 8.0 if battle else 12.0
 	var left := maxf(padding, float(insets.get("left", 0.0)))
 	var right := maxf(padding, float(insets.get("right", 0.0)))
 	var top := maxf(padding, float(insets.get("top", 0.0)))
 	var bottom := maxf(padding, float(insets.get("bottom", 0.0)))
 	var available := viewport.x - left - right
-	var gap := 6.0 if viewport.x <= 480.0 else 8.0
+	var gap := 5.0 if viewport.x <= 480.0 else 6.0
 	var cluster_limit := maxf(160.0, minf(352.0, viewport.y - top - bottom - 380.0))
 	var controls_width := minf(available, (4.0 * cluster_limit + gap) / 3.0)
 	var key := (controls_width - gap * 3.0) / 4.0
@@ -18,7 +18,7 @@ static func measure(viewport: Vector2, insets: Dictionary, battle: bool, coach_h
 	var board_width := minf(available, 512.0)
 	var board_left := left + (available - board_width) / 2.0
 	var player_hp := Rect2(board_left, queue.position.y - 8.0 - 32.5, board_width, 32.5)
-	var enemy_hp := Rect2(board_left + 52.0, top, board_width - 52.0, 44.0)
+	var enemy_hp := Rect2(board_left, top, board_width, 56.0)
 	var enemy_size := minf(board_width * 0.35, 144.0)
 	var self_size := minf(board_width * 0.55, 240.0)
 	var self_scale := 0.78
@@ -46,14 +46,9 @@ static func measure(viewport: Vector2, insets: Dictionary, battle: bool, coach_h
 		font_size = 100.8
 		max_blob = 304.0
 	var pair_height := enemy_size + self_size + 8.0
-	var board_top := enemy_hp.end.y + coach_height
+	var board_top := enemy_hp.end.y
 	var pair_available := maxf(60.0, player_hp.position.y - board_top - 16.0)
-	var horizontal_pair := coach_height > 0.0 and pair_available < 180.0
-	if horizontal_pair:
-		self_size = minf(self_size, pair_available)
-		enemy_size = minf(enemy_size, pair_available * 0.72)
-		pair_height = self_size
-	elif pair_height > pair_available:
+	if pair_height > pair_available:
 		var fit := (pair_available - 8.0) / (enemy_size + self_size)
 		enemy_size *= fit
 		self_size *= fit
@@ -64,9 +59,6 @@ static func measure(viewport: Vector2, insets: Dictionary, battle: bool, coach_h
 	var center_x := board_left + board_width / 2.0
 	var enemy_blob := Rect2(center_x - enemy_blob_size / 2.0, pair_top + (enemy_size - enemy_blob_size) / 2.0, enemy_blob_size, enemy_blob_size)
 	var self_blob := Rect2(center_x - self_blob_size / 2.0, pair_top + enemy_size + 8.0 + (self_size - self_blob_size) / 2.0, self_blob_size, self_blob_size)
-	if horizontal_pair:
-		enemy_blob.position = Vector2(board_left + board_width * 0.24 - enemy_blob_size / 2.0, pair_top + (pair_height - enemy_blob_size) / 2.0)
-		self_blob.position = Vector2(board_left + board_width * 0.66 - self_blob_size / 2.0, pair_top + (pair_height - self_blob_size) / 2.0)
 	var solo_top := top + 44.0 + 12.0
 	var solo_bottom := queue.position.y - 12.0
 	var solo_max := 297.6 if viewport.x <= 480.0 else (304.0 if viewport.x >= 900.0 else 344.0)

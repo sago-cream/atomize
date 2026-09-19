@@ -2,6 +2,7 @@ extends Panel
 
 # Short arrivals preserve the rhythm without hiding an actionable puzzle.
 const REVEAL_SECONDS := 0.24
+var shadow: ColorRect
 var value_label: Label
 var stage_index := -1
 var previous_value := -1
@@ -24,11 +25,22 @@ func configure(label: Label, font_size: float, is_solo: bool, conceal: bool, red
 	conceal_factors = conceal
 	reduced_motion = reduce_motion
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	if not solo:
-		var style := get_theme_stylebox("panel").duplicate() as StyleBoxFlat
-		if style != null:
-			style.shadow_size = 0
-			add_theme_stylebox_override("panel", style)
+	var style := get_theme_stylebox("panel").duplicate() as StyleBoxFlat
+	if style != null:
+		style.shadow_size = 0
+		if not solo:
+			style.border_color = Color(style.bg_color, 0.36)
+			style.set_border_width_all(1)
+		add_theme_stylebox_override("panel", style)
+	if solo:
+		shadow = ColorRect.new()
+		shadow.color = Color(0.063, 0.106, 0.18, 0.08)
+		shadow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		shadow.show_behind_parent = true
+		var material := ShaderMaterial.new()
+		material.shader = preload("res://assets/shaders/soft_ellipse.gdshader")
+		shadow.material = material
+		add_child(shadow)
 
 func sync_value(identity: int, value: int) -> void:
 	if stage_index == identity and previous_value == value:
@@ -83,6 +95,9 @@ func refresh_font(font_size: float) -> void:
 func _process(delta: float) -> void:
 	if not is_instance_valid(value_label):
 		return
+	if is_instance_valid(shadow):
+		shadow.position = Vector2(size.x * 0.22 - 10.0, size.y * 0.81 - 10.0)
+		shadow.size = Vector2(size.x * 0.56 + 20.0, size.y * 0.12 + 20.0)
 	reveal_left = maxf(0.0, reveal_left - delta)
 	pivot_offset = size / 2.0
 	if reveal_left > 0.0 and not reduced_motion:
@@ -124,21 +139,23 @@ func _spawn_echo(value: int, index: int, cleared: bool) -> void:
 	echo.name = "FactorEcho"
 	echo.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var visual_scale := 1.0 if solo else base_font_size / 70.4
-	var diameter := (75.2 if cleared else 80.8) * visual_scale
+	var rem_size := (4.7 if value < 10 else (5.15 if value < 100 else 5.65)) if cleared else (5.05 if value < 10 else (5.55 if value < 100 else 6.05))
+	var diameter := (5.4 if conceal_factors else rem_size) * 16.0 * visual_scale
 	echo.size = Vector2.ONE * diameter
 	echo.pivot_offset = echo.size / 2.0
 	echo.position = position + size / 2.0 - echo.size / 2.0
 	var style := get_theme_stylebox("panel").duplicate() as StyleBoxFlat
 	if style != null:
 		style.shadow_size = 0
-		style.bg_color = Color("#168aad") if solo else (Color("#34a0a4").lerp(Color.WHITE, 0.18) if cleared else Color("#34a0a4"))
+		var base_color := Color("#34a0a4") if conceal_factors else Color("#168aad")
+		style.bg_color = base_color.lerp(Color.WHITE, 0.22) if cleared and not solo else base_color
 		echo.add_theme_stylebox_override("panel", style)
 	get_parent().add_child(echo, true)
 	if not conceal_factors:
 		var label := Label.new()
 		label.text = str(value)
 		label.label_settings = value_label.label_settings.duplicate()
-		label.label_settings.font_size = int(minf(26.0, diameter * 0.42))
+		label.label_settings.font_size = int(round(32.0 * visual_scale))
 		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -148,8 +165,9 @@ func _spawn_echo(value: int, index: int, cleared: bool) -> void:
 	var distance := (7.9 + float(index % 4) * 0.6) if cleared else (7.6 + float(index % 3) * 0.7)
 	var offset := Vector2(sin(angle), -cos(angle)) * distance * 16.0 * visual_scale * 1.24
 	echo.scale = Vector2.ONE * 0.32
+	var duration := 0.9 if cleared else 0.82
 	var tween := echo.create_tween().set_parallel(true)
-	tween.tween_property(echo, "position", echo.position + offset, 0.82).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween.tween_property(echo, "position", echo.position + offset, duration).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	tween.tween_property(echo, "scale", Vector2.ONE, 0.2)
 	tween.tween_property(echo, "modulate:a", 0.0, 0.23).set_delay(0.59)
 	tween.chain().tween_callback(echo.queue_free)

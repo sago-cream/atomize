@@ -15,6 +15,7 @@ func _init() -> void:
 	var actual := _create_actual_fixture(fixture)
 
 	_compare_variant(actual, fixture, "$")
+	_validate_repeated_battle_combos()
 
 	if failures.is_empty():
 		print("[Success] Godot core matches TypeScript fixtures.")
@@ -26,6 +27,34 @@ func _init() -> void:
 
 	printerr("[Error] Godot core parity failed with %s mismatch(es)." % failures.size())
 	quit(1)
+
+func _validate_repeated_battle_combos() -> void:
+	var snapshot := MultiplayerRoom.create_room_snapshot("event-sequence", "host", "Host")
+	snapshot = MultiplayerRoom.add_player_to_room(snapshot, "guest", "Guest")
+	snapshot = MultiplayerRoom.set_player_ready(snapshot, "host", true)
+	snapshot = MultiplayerRoom.set_player_ready(snapshot, "guest", true)
+	snapshot = MultiplayerRoom.begin_room_match(snapshot)
+	snapshot.maxHp = 1000000
+	for player in snapshot.players:
+		player.hp = 900000
+	var last_id := 0
+	for turn in range(20):
+		var player_id := "host" if turn % 2 == 0 else "guest"
+		var player: Dictionary = MultiplayerRoom.find_player(snapshot.players, player_id)
+		var factors: Array = player.stage.remainingFactors.duplicate()
+		for index in range(factors.size()):
+			var suppressed := index < factors.size() - 1
+			snapshot = MultiplayerRoom.apply_battle_prime_selection(snapshot, player_id, factors[index], {"suppressAttack": suppressed, "perfectSolveEligible": true, "resolvingQueueLength": factors.size()})
+			var event: Dictionary = snapshot.get("lastEvent", {})
+			var expected_id := last_id if suppressed else last_id + 1
+			_compare_variant(int(event.get("id", 0)), expected_id, "combo[%s].factor[%s].eventId" % [turn, index])
+			if not suppressed:
+				last_id = expected_id
+				_compare_variant(int(event.sourceHp), int(MultiplayerRoom.find_player(snapshot.players, player_id).hp), "combo[%s].sourceHp" % turn)
+				_compare_variant(int(event.targetHp), int(MultiplayerRoom.find_opponent(snapshot.players, player_id).hp), "combo[%s].targetHp" % turn)
+		snapshot = MultiplayerRoom.apply_battle_penalty(snapshot, player_id)
+		last_id += 1
+		_compare_variant(int(snapshot.lastEvent.id), last_id, "combo[%s].penalty.eventId" % turn)
 
 func _load_fixture() -> Dictionary:
 	var file := FileAccess.open("res://tests/generated/core-fixtures.json", FileAccess.READ)
@@ -264,6 +293,11 @@ func _create_room_fixtures() -> Array:
 			"snapshot": snapshot,
 		}
 	)
+
+	var guest_factors: Array = snapshot["players"][1]["stage"]["remainingFactors"].duplicate()
+	for index in range(guest_factors.size()):
+		snapshot = MultiplayerRoom.apply_battle_prime_selection(snapshot, "guest", guest_factors[index], {"perfectSolveEligible": true, "resolvingQueueLength": guest_factors.size(), "suppressAttack": index < guest_factors.size() - 1})
+		steps.append({"label": "guest-prime-%s" % (index + 1), "snapshot": snapshot})
 
 	return steps
 
