@@ -211,7 +211,8 @@ Run these commands from the repository root:
 | Run TypeScript/Godot parity tests            | `bun run godot:test` |
 | Export Android debug APK                     | `bun run android`    |
 | Export iOS debug Xcode package               | `bun run ios:export` |
-| Export, build, install, and launch on iPhone | `bun run ios`        |
+| Export, build, install, and launch on iPhone | `bun run iphone`     |
+| Export, build, install, and launch in Simulator | `bun run ios`     |
 
 ## Logic Parity
 
@@ -345,11 +346,19 @@ Xcode asks, select the connected iPhone, and run.
 For the local CLI path, run:
 
 ```bash
-bun run ios
+bun run iphone
 ```
 
 That command exports the Godot project, builds with `xcodebuild`, installs the
 app through `xcrun devicectl`, and launches it on the connected iPhone.
+
+Run `bun run ios` for an iPhone simulator. Select one with `IOS_SIMULATOR_ID`
+or `IOS_SIMULATOR_NAME`. Simulator builds preserve app data and do not require
+a signing team. They require matching Godot export templates containing code
+for the Mac's native simulator architecture; use `GODOT_IOS_TEMPLATE_DEBUG`
+to select a custom template ZIP. The runner reports incompatible templates
+before building or installing. Run `python3 tests/test_ios_commands.py` for
+isolated command-flow and export-restoration checks.
 
 The iOS preset is named `iOS Debug` and uses bundle identifier
 `dev.hsichen.atomize`.
